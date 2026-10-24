@@ -8,6 +8,7 @@ import { formatMoney } from '../lib/catalog.ts';
 import { buyerContextPath, cartPath, productReturnPath } from '../lib/product.ts';
 import type { CartItem } from '../types/cart.ts';
 import { CartItemLink } from './CartItemLink.tsx';
+import { CartItemEditor } from './CartItemEditor.tsx';
 import { CartFeedback } from './CartFeedback.tsx';
 
 export function CartPanel({ top, trigger }: { top: number; trigger: RefObject<HTMLButtonElement | null> }) {
@@ -37,13 +38,14 @@ export function CartPanel({ top, trigger }: { top: number; trigger: RefObject<HT
   function row(item: CartItem, storeName: string) {
     return <li key={item.item_id} className="cart-item">
       <CartItemLink item={item} storeName={storeName} returnTo={returnPath} onNavigate={close} />
-      <p className="cart-item-price"><span>{item.unit_price === null ? '暂无可用报价' : `¥${formatMoney(item.unit_price)}`}</span><span>× {item.quantity}</span></p>
+      <p className="cart-item-price"><span>{item.unit_price === null ? '暂无可用报价' : `¥${formatMoney(item.unit_price)}`}</span></p>
+      <CartItemEditor item={item} />
       {!item.purchasable && <p className="cart-item-status">{purchaseStatusText[item.purchase_status]}</p>}
     </li>;
   }
   return <section ref={panel} id="cart-panel" className="cart-panel" role="dialog" aria-labelledby="cart-heading" style={{ top, maxHeight: `calc(100dvh - ${top + 24}px)` }}>
     <header><div><h2 id="cart-heading">购物车</h2><small>{cartAvailable ? '模拟账号 · 加购不锁定库存' : '购物车接口暂不可用'}</small></div><button ref={closeButton} className="text-button" aria-label="关闭购物车" onClick={dismiss}>×</button></header>
-    <div className="cart-panel-body" aria-busy={state.status === 'loading' || state.adding}>
+    <div className="cart-panel-body" aria-busy={state.status === 'loading' || state.mutating}>
       <CartFeedback />
       {state.status === 'ready' && !state.view.item_count && <div className="cart-empty"><p>购物车还是空的</p><small>去挑选喜欢的好物吧。</small></div>}
       {state.view.groups.map(group => <section className="cart-group" key={group.store.store_id}><h3>{group.store.name}</h3><ul>{group.items.map(item => row(item, group.store.name))}</ul></section>)}

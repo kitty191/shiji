@@ -3,6 +3,7 @@ import type { ReactNode } from 'react';
 import { useLocation } from 'react-router-dom';
 import { cartGateway } from '../api/cart.ts';
 import { CartStore } from '../stores/cart.ts';
+import { CartUndoNotice } from './CartUndoNotice.tsx';
 import { CartContext } from './CartContext.ts';
 
 export function CartProvider({ children }: { children: ReactNode }) {
@@ -14,5 +15,5 @@ export function CartProvider({ children }: { children: ReactNode }) {
   const show = useCallback(() => { setOpen(true); if (!store.getSnapshot().retryPending && !store.getSnapshot().error) void store.load().catch(() => undefined); }, [store]);
   const close = useCallback(() => setOpen(false), []);
   useEffect(() => { void store.load().catch(() => undefined); }, [store]);
-  return <CartContext value={{ store, open, show, close }}>{children}</CartContext>;
+  return <CartContext value={{ store, open, show, close }}>{children}<CartUndoNotice /></CartContext>;
 }

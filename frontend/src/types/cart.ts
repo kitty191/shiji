@@ -12,7 +12,13 @@ export interface CartView {
   groups: { store: StoreBrief; items: CartItem[] }[]; item_count: number; quantity_total: number; currency: 'CNY';
 }
 export interface CartAddRequest { sku_id: string; quantity: number }
+export interface CartQuantityRequest { quantity: number; expected_quantity: number }
+export interface CartDeletion { deleted_item_ids: string[]; restore_token: string; undo_expires_at: string }
+export interface CartRestoration { items: CartItem[] }
 export interface CartGateway {
   read(): Promise<CartView>;
   add(request: CartAddRequest, idempotencyKey: string): Promise<CartItem>;
+  update(itemId: string, request: CartQuantityRequest, idempotencyKey: string): Promise<CartItem>;
+  remove(itemIds: readonly string[], idempotencyKey: string): Promise<CartDeletion>;
+  restore(token: string, idempotencyKey: string): Promise<CartRestoration>;
 }

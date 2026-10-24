@@ -1,5 +1,5 @@
 import type { ProductDetail, ProductView, StoreBrief } from '../types/catalog.ts';
-import type { CartAddRequest, CartItem, CartView } from '../types/cart.ts';
+import type { CartAddRequest, CartDeletion, CartItem, CartQuantityRequest, CartRestoration, CartView } from '../types/cart.ts';
 import { CartError, emptyCart } from '../lib/cart.ts';
 import { completeSku, inStock } from '../lib/product.ts';
 
@@ -13,6 +13,7 @@ interface Options {
   load?: () => string | null;
   save?: (data: string) => void;
   id?: () => string;
+  now?: () => number;
 }
 function validItem(value: unknown): value is StoredItem {
   if (!value || typeof value !== 'object') return false;
@@ -27,13 +28,14 @@ function validItem(value: unknown): value is StoredItem {
 // A local demo account only. No authentication, database or stock reservation.
 export class MockCart {
   private items: StoredItem[] = [];
-  private receipts = new Map<string, { fingerprint: string; result: CartItem }>();
+  private receipts = new Map<string, { fingerprint: string; result: unknown }>();
+  private deletions = new Map<string, { rows: StoredItem[]; until: number; result?: CartRestoration }>();
   private options: Options;
   constructor(options: Options) {
     this.options = options;
-    this.restore();
+    this.readSnapshot();
   }
-  private restore(): void {
+  private readSnapshot(): void {
     if (!this.options.load) return;
     try {
       const data = JSON.parse(this.options.load() || 'null') as PersistedCart | null;
@@ -60,7 +62,7 @@ export class MockCart {
       purchase_status: status, purchasable: status === 'AVAILABLE', image_disabled: status === 'SPEC_DISABLED' || status === 'NOT_AVAILABLE', navigation };
   }
   read(): CartView {
-    this.restore();
+    this.readSnapshot();
     const view = emptyCart();
     for (const row of this.items) {
       const product = this.options.catalog().find(item => item.product_id === row.snapshot.product_id);
@@ -73,14 +75,11 @@ export class MockCart {
     return view;
   }
   add(request: CartAddRequest, key: string): CartItem {
-    this.restore();
+    this.readSnapshot();
     if (!key || !Number.isSafeInteger(request.quantity) || request.quantity < 1) throw new CartError('INVALID_ARGUMENT', '请检查加入数量。');
     const fingerprint = JSON.stringify([request.sku_id, request.quantity]);
-    const receipt = this.receipts.get(key);
-    if (receipt) {
-      if (receipt.fingerprint !== fingerprint) throw new CartError('IDEMPOTENCY_CONFLICT', '操作标记与请求不一致。');
-      return structuredClone(receipt.result);
-    }
+    const receipt = this.replay<CartItem>(key, `add:${fingerprint}`);
+    if (receipt) return receipt;
     let product: ProductDetail | undefined;
     for (const candidate of this.options.catalog()) {
       if (candidate.view_status === 'ON_SALE' && candidate.skus.some(item => item.sku_id === request.sku_id)) { product = candidate; break; }
@@ -101,12 +100,87 @@ export class MockCart {
             value: dimension.values.find(value => value.value_id === sku.spec_values.find(item => item.dimension_id === dimension.dimension_id)?.value_id)!.value })) } };
       next.push(row);
     }
+    this.commit(next);
+    const result = this.materialize(row);
+    this.remember(key, `add:${fingerprint}`, result);
+    return result;
+  }
+  private replay<T>(key: string, fingerprint: string): T | undefined {
+    if (!key) throw new CartError('INVALID_ARGUMENT', '操作标记不能为空。');
+    const receipt = this.receipts.get(key);
+    if (!receipt) return undefined;
+    if (receipt.fingerprint !== fingerprint) throw new CartError('IDEMPOTENCY_CONFLICT', '操作标记与请求不一致。');
+    return structuredClone(receipt.result) as T;
+  }
+  private remember(key: string, fingerprint: string, result: unknown): void {
+    this.receipts.set(key, { fingerprint, result: structuredClone(result) });
+    while (this.receipts.size > 200) this.receipts.delete(this.receipts.keys().next().value!);
+  }
+  private commit(next: StoredItem[]): void {
     try { this.options.save?.(JSON.stringify({ version: 1, items: next })); }
     catch { throw new CartError('SERVICE_UNAVAILABLE', '暂时无法保存购物车，请稍后重试。'); }
     this.items = next;
-    const result = this.materialize(row);
-    this.receipts.set(key, { fingerprint, result: structuredClone(result) });
-    while (this.receipts.size > 200) this.receipts.delete(this.receipts.keys().next().value!);
+  }
+  update(itemId: string, request: CartQuantityRequest, key: string): CartItem {
+    this.readSnapshot();
+    const fingerprint = JSON.stringify(['update', itemId, request.quantity, request.expected_quantity]);
+    const replay = this.replay<CartItem>(key, fingerprint);
+    if (replay) return replay;
+    if (![request.quantity, request.expected_quantity].every(value => Number.isSafeInteger(value) && value > 0)) throw new CartError('INVALID_ARGUMENT', '数量必须为正整数。');
+    const row = this.items.find(item => item.item_id === itemId);
+    if (!row || row.quantity !== request.expected_quantity) throw new CartError('CART_CHANGED', '商品数量已在其他页面变化，已重新核对购物车，请确认后再修改。');
+    const current = this.materialize(row);
+    if (!['AVAILABLE', 'INSUFFICIENT_STOCK'].includes(current.purchase_status)) throw new CartError('ITEM_NOT_PURCHASABLE', '所选商品暂时不能购买，无法修改数量。');
+    if (request.quantity > current.available_stock!) throw new CartError('INSUFFICIENT_STOCK', `当前库存仅剩 ${current.available_stock} 件，请确认后再修改。`);
+    if (!Number.isSafeInteger(request.quantity * current.unit_price!)) throw new CartError('INVALID_ARGUMENT', '数量超出范围。');
+    const next = structuredClone(this.items), updated = next.find(item => item.item_id === itemId)!;
+    updated.quantity = request.quantity;
+    this.commit(next);
+    const result = this.materialize(updated);
+    this.remember(key, fingerprint, result);
     return result;
   }
+  remove(itemIds: readonly string[], key: string): CartDeletion {
+    this.readSnapshot();
+    if (!itemIds.length || itemIds.length > 50 || new Set(itemIds).size !== itemIds.length) throw new CartError('INVALID_ARGUMENT', '每次请选择 1 至 50 个不同商品项。');
+    const fingerprint = JSON.stringify(['remove', [...itemIds].sort()]);
+    const replay = this.replay<CartDeletion>(key, fingerprint);
+    if (replay) return replay;
+    const rows = itemIds.map(id => this.items.find(item => item.item_id === id));
+    if (rows.some(row => !row)) throw new CartError('CART_CHANGED', '部分商品项已变化，本次未删除，请重新确认。');
+    const token = `undo_${(this.options.id ?? (() => crypto.randomUUID()))()}`;
+    const until = (this.options.now ?? Date.now)() + 8000;
+    this.commit(this.items.filter(item => !itemIds.includes(item.item_id)));
+    this.deletions.set(token, { rows: structuredClone(rows as StoredItem[]), until });
+    while (this.deletions.size > 200) this.deletions.delete(this.deletions.keys().next().value!);
+    const result = { deleted_item_ids: [...itemIds], restore_token: token, undo_expires_at: new Date(until).toISOString() };
+    this.remember(key, fingerprint, result);
+    return result;
+  }
+  restore(token: string, key: string): CartRestoration {
+    this.readSnapshot();
+    const fingerprint = JSON.stringify(['restore', token]);
+    const replay = this.replay<CartRestoration>(key, fingerprint);
+    if (replay) return replay;
+    const record = this.deletions.get(token);
+    if (record?.result) { this.remember(key, fingerprint, record.result); return structuredClone(record.result); }
+    if (!record || record.until <= (this.options.now ?? Date.now)()) throw new CartError('RESTORE_EXPIRED', '已超过 8 秒撤销时间。');
+    const next = structuredClone(this.items), restored: StoredItem[] = [];
+    for (const saved of record.rows) {
+      let row = next.find(item => item.sku_id === saved.sku_id);
+      if (row) {
+        if (!Number.isSafeInteger(row.quantity + saved.quantity)) throw new CartError('INVALID_ARGUMENT', '恢复后的数量超出范围。');
+        row.quantity += saved.quantity;
+      } else { row = structuredClone(saved); next.push(row); }
+      const view = this.materialize(row);
+      if (view.line_amount !== null && !Number.isSafeInteger(view.line_amount)) throw new CartError('INVALID_ARGUMENT', '恢复后的金额超出范围。');
+      restored.push(row);
+    }
+    this.commit(next);
+    const result = { items: restored.map(row => this.materialize(row)) };
+    record.result = structuredClone(result);
+    this.remember(key, fingerprint, result);
+    return result;
+  }
+
 }
