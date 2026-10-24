@@ -1,5 +1,5 @@
-import type { Address, AddressCreateRequest } from '../types/address.ts';
-import { AddressError, normalizeAddress } from '../lib/address.ts';
+import type { Address, AddressCreateRequest, AddressEditRequest } from '../types/address.ts';
+import { AddressError, addressEditRequest, normalizeAddress } from '../lib/address.ts';
 
 interface Options { load?: () => string | null; save?: (value: string) => void; id?: () => string; now?: () => number }
 
@@ -36,7 +36,7 @@ export class MockAddresses {
     return structuredClone(this.items);
   }
   create(request: AddressCreateRequest, key: string): Address {
-    const normalized = normalizeAddress(request), fingerprint = JSON.stringify(normalized);
+    const normalized = normalizeAddress(request), fingerprint = JSON.stringify(['create', normalized]);
     if (!key) throw new AddressError('INVALID_ARGUMENT', '操作标记不能为空。');
     const receipt = this.receipts.get(key);
     if (receipt) {
@@ -53,6 +53,29 @@ export class MockAddresses {
     catch { throw new AddressError('SERVICE_UNAVAILABLE', '地址暂时无法保存，输入仍保留，请稍后重试。'); }
     this.items = next;
     this.receipts.set(key, { fingerprint, result: structuredClone(address) });
+    while (this.receipts.size > 200) this.receipts.delete(this.receipts.keys().next().value!);
+    return structuredClone(address);
+  }
+  update(addressId: string, request: AddressEditRequest, operationKey: string): Address {
+    const normalized = addressEditRequest(request, request.edit_token);
+    const fingerprint = JSON.stringify(['update', addressId, normalized]);
+    if (!operationKey) throw new AddressError('INVALID_ARGUMENT', '操作标记不能为空。');
+    // Local receipt recovery only; D03 has no HTTP Idempotency-Key contract.
+    const receipt = this.receipts.get(operationKey);
+    if (receipt) {
+      if (receipt.fingerprint !== fingerprint) throw new AddressError('IDEMPOTENCY_CONFLICT', '操作标记与编辑内容不一致。');
+      return structuredClone(receipt.result);
+    }
+    const previous = this.read(), original = previous.find(item => item.address_id === addressId);
+    if (!original) throw new AddressError('NOT_FOUND', '这条地址已不存在，请重新加载地址列表。');
+    if (original.edit_token !== normalized.edit_token) throw new AddressError('EDIT_CONFLICT', '这条地址已在其他页面修改，请重新载入后再编辑。');
+    const { edit_token: _token, ...fields } = normalized;
+    const address: Address = { ...original, ...fields, updated_at: new Date((this.options.now ?? Date.now)()).toISOString(), edit_token: `mock_${crypto.randomUUID()}` };
+    const next = previous.map(item => item.address_id === addressId ? address : item);
+    try { this.options.save?.(JSON.stringify({ version: 1, items: next })); }
+    catch { throw new AddressError('SERVICE_UNAVAILABLE', '地址暂时无法保存，输入仍保留，请稍后重试。'); }
+    this.items = next;
+    this.receipts.set(operationKey, { fingerprint, result: structuredClone(address) });
     while (this.receipts.size > 200) this.receipts.delete(this.receipts.keys().next().value!);
     return structuredClone(address);
   }

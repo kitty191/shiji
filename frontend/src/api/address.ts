@@ -12,4 +12,5 @@ function requireMock(): void {
 export const addressGateway: AddressGateway = {
   async read() { requireMock(); await delay(); return engine.read(); },
   async create(request, key) { requireMock(); await delay(); return engine.create(request, key); },
+  async update(addressId, request, operationKey) { requireMock(); await delay(); return engine.update(addressId, request, operationKey); },
 };

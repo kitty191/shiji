@@ -1,4 +1,4 @@
-import type { AddressCreateRequest } from '../types/address.ts';
+import type { AddressCreateRequest, AddressEditRequest } from '../types/address.ts';
 import type { ResultCode } from '../types/result.ts';
 import { buyerReturnPath } from './product.ts';
 
@@ -44,4 +44,10 @@ export function normalizeAddress(request: AddressCreateRequest): AddressCreateRe
 export function addressPath(returnTo: string | null): string {
   const path = buyerReturnPath(returnTo);
   return path === '/buyer' ? '/addresses' : `/addresses?${new URLSearchParams({ return_to: path })}`;
+}
+
+export function addressEditRequest(draft: AddressCreateRequest, editToken: string): AddressEditRequest {
+  if (typeof editToken !== 'string' || !editToken) throw new AddressError('INVALID_ARGUMENT', '请重新载入要编辑的地址。');
+  const { is_default: _default, ...fields } = normalizeAddress(draft);
+  return { ...fields, edit_token: editToken };
 }
