@@ -9,6 +9,7 @@ import { Header } from '../components/Header.tsx';
 import { Icon } from '../components/Icon.tsx';
 import { ProductCard } from '../components/ProductCard.tsx';
 import { FloatingTools, useRailState } from '../components/FloatingTools.tsx';
+import { useBuyerPosition } from '../lib/browsePosition.ts';
 
 export function BuyerHome() {
   const [params, setParams] = useSearchParams();
@@ -20,6 +21,7 @@ export function BuyerHome() {
   const [feedExpired, setFeedExpired] = useState(false);
   const [reload, setReload] = useState(0), [minimum, setMinimum] = useState(''), [maximum, setMaximum] = useState(''), [priceError, setPriceError] = useState('');
   const [collapsed, setCollapsed] = useRailState();
+  useBuyerPosition(status === 'ready');
   useEffect(() => { setMinimum(query.min_price === undefined ? '' : String(query.min_price / 100)); setMaximum(query.max_price === undefined ? '' : String(query.max_price / 100)); setPriceError(''); }, [priceKey]);
   useEffect(() => {
     // Attaching the returned token to this history entry reuses the response just loaded.
@@ -37,7 +39,7 @@ export function BuyerHome() {
         const nextKey = nextParams.toString();
         if (nextKey !== key) {
           attachedFeed.current = { key: nextKey, reload };
-          setParams(nextParams, { replace: true });
+          setParams(nextParams, { replace: true, preventScrollReset: true });
         }
       })
       .catch(reason => {

@@ -2,7 +2,7 @@
   "openapi": "3.0.3",
   "info": {
     "title": "拾集商城 API",
-    "version": "0.5.0",
+    "version": "0.5.1",
     "description": "个人开发用接口草案，保留现有 79 项接口，按模块边开发边调整。除已确认业务规则外，字段、枚举、必填项及参数上限均为当前设计候选，不表示全部冻结。金额单位为分，ID 为字符串。未接真实后端。登录技术待选，暂未配置安全方案；私有接口仍须验证身份和归属。 统一返回 Result<T>：code、message、data、request_id；code 使用 ResultCode 枚举名称，成功 SUCCESS，失败如 NOT_FOUND。HTTP 状态保持真实含义。"
   },
   "servers": [
@@ -5895,11 +5895,13 @@
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/PublicSku"
-            }
+            },
+            "description": "按详情展示顺序返回，无明确上下文时选中第一个有货的完整规格。"
           },
           "default_sku_id": {
             "type": "string",
-            "nullable": true
+            "nullable": true,
+            "description": "D081：按 skus 返回顺序第一个完整且 IN_STOCK、available_stock > 0 的 SKU ID；没有可售项时为 null。无明确上下文时自动选择该项；明确选择须核验，不自动改绑失效 SKU。"
           },
           "published_at": {
             "type": "string",
