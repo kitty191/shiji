@@ -92,3 +92,21 @@
 .cart-undo-notice{position:fixed;bottom:24px;left:max(24px,calc((100vw - 1280px)/2 + 24px));width:min(416px,calc(100vw - 112px));z-index:8;padding:16px 20px;border:1px solid var(--line);border-radius:12px;background:var(--panel);box-shadow:0 8px 32px var(--shadow);font-size:13px}.cart-undo-notice>div{display:flex;align-items:center;gap:12px;margin-top:12px}.cart-undo-notice span{color:var(--muted);font-size:12px}.cart-undo-notice .text-button{margin-left:auto;padding:8px}.cart-delete-dialog{position:fixed;inset:auto;right:auto;bottom:auto;width:min(380px,calc(100vw - 48px));margin:0;padding:24px;border:1px solid var(--line);border-radius:12px;background:var(--panel);color:var(--ink);box-shadow:0 12px 40px var(--shadow)}.cart-delete-dialog::backdrop{background:rgb(0 0 0/.35)}.cart-delete-dialog h2{font-size:20px;margin-bottom:12px}.cart-delete-dialog p{font-size:13px;color:var(--muted)}.cart-delete-dialog>div{display:flex;justify-content:flex-end;gap:12px;margin-top:24px}
 @supports(backdrop-filter:blur(16px)){.cart-undo-notice{background:var(--glass);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px)}}
 }
+
+@layer components {
+.address-demo-note{font-size:12px;line-height:1.8;color:var(--muted);margin:12px 0 20px}
+.address-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;margin-top:24px}
+.address-card{min-width:0;padding:24px;border:1px solid var(--line);border-radius:12px;background:var(--panel);overflow-wrap:anywhere}
+.address-card>div{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:12px}
+.address-card h2{font-size:17px}.address-card p{margin-top:6px;color:var(--muted);font-size:14px}
+.address-default-badge{font-size:12px;padding:2px 8px;border-radius:4px;background:var(--soft);color:var(--brand)}
+.address-form{padding:24px;background:var(--panel);border:1px solid var(--line);border-radius:12px;max-width:720px;margin:24px 0}
+.address-form h2{font-size:20px;margin-bottom:24px}.address-fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:20px}
+.address-field{min-width:0}.address-field-wide{grid-column:1/-1}.address-field label{display:block;font-size:13px;margin-bottom:8px}
+.address-field input{font:inherit;width:100%;min-width:0;padding:10px 12px;border:1px solid var(--line);border-radius:8px;background:var(--bg)}
+.address-field input[aria-invalid=true]{border-color:var(--brand)}.address-field .field-error{font-size:12px;margin-top:8px}
+.address-default-check{display:flex;align-items:center;gap:8px;margin-top:24px;font-size:13px}
+.address-default-check input{accent-color:var(--brand);width:16px;height:16px}.address-actions{display:flex;gap:12px;margin-top:24px}
+.address-leave-dialog{left:50%;top:50%;transform:translate(-50%,-50%)}
+@media(max-width:760px){.address-grid,.address-fields{grid-template-columns:minmax(0,1fr)}.address-card,.address-form{padding:20px}}
+}

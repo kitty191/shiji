@@ -1,9 +1,14 @@
 import { useEffect, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
+import { Link, useLocation } from 'react-router-dom';
 import { Icon } from './Icon.tsx';
 import { prototypeUrl } from '../lib/catalog.ts';
+import { addressPath } from '../lib/address.ts';
+import { buyerContextPath } from '../lib/product.ts';
 export function Header({ keyword, onSearch }: { keyword: string; onSearch: (keyword: string) => void }) {
   const [draft, setDraft] = useState(keyword), [open, setOpen] = useState(false);
+  const location = useLocation();
+  const returnPath = location.pathname === '/buyer' ? `${location.pathname}${location.search}` : buyerContextPath(new URLSearchParams(location.search).get('return_to'));
   const account = useRef<HTMLDivElement>(null), trigger = useRef<HTMLButtonElement>(null);
   useEffect(() => setDraft(keyword), [keyword]);
   useEffect(() => {
@@ -15,13 +20,15 @@ export function Header({ keyword, onSearch }: { keyword: string; onSearch: (keyw
   }, [open]);
   function submit(event: FormEvent) { event.preventDefault(); onSearch(draft.trim()); }
   return <header className="site-header">
-    <div className="brand-row"><a className="brand" href="#/buyer" aria-label="拾集首页"><span className="brand-mark">拾</span><span>拾集</span></a>
+    <div className="brand-row"><Link className="brand" to="/buyer" aria-label="拾集首页"><span className="brand-mark">拾</span><span>拾集</span></Link>
       <div className="account" ref={account} onBlur={event => { if (!event.currentTarget.contains(event.relatedTarget)) setOpen(false); }}>
         <button className="account-trigger" ref={trigger} aria-expanded={open} aria-controls="account-menu" onClick={() => setOpen(value => !value)}>
           <span className="avatar">拾</span><span className="account-copy"><strong>拾光同学</strong><small>正在逛商城</small></span><Icon name="chevron" />
         </button>
         {open && <nav id="account-menu" className="account-menu" aria-label="账号菜单"><p>拾光同学 <small>原型演示账号</small></p>
-          {[['profile', '个人资料'], ['orders', '我的订单'], ['addresses', '收货地址'], ['opening', '商家中心']].map(([page, text]) => <a key={page} href={prototypeUrl(page)} target="_blank" rel="noopener noreferrer" title={`${text}（在新标签页查看原型）`}>{text}<span aria-hidden="true">↗</span></a>)}
+          {[['profile', '个人资料'], ['orders', '我的订单'], ['addresses', '收货地址'], ['opening', '商家中心']].map(([page, text]) => page === 'addresses'
+            ? <Link key={page} to={addressPath(returnPath)} onClick={() => setOpen(false)}>{text}</Link>
+            : <a key={page} href={prototypeUrl(page)} target="_blank" rel="noopener noreferrer" title={`${text}（在新标签页查看原型）`}>{text}<span aria-hidden="true">↗</span></a>)}
         </nav>}
       </div>
     </div>
