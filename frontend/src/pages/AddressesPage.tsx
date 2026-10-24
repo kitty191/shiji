@@ -16,7 +16,7 @@ type FormSession =
   | { kind: 'update'; address_id: string; edit_token: string; initial: AddressCreateRequest };
 
 function pendingSession(operation: AddressOperation | null): FormSession | null {
-  if (!operation) return null;
+  if (!operation || operation.kind === 'set-default') return null;
   const initial = { ...operation.request };
   return operation.kind === 'create' ? { kind: 'create', initial }
     : { kind: 'update', address_id: operation.address_id, edit_token: operation.request.edit_token, initial };
@@ -32,7 +32,7 @@ function LeaveAddressConfirm({ saving, editing, onStay, onLeave }: { saving: boo
   return <dialog ref={dialog} className="cart-delete-dialog address-leave-dialog" aria-labelledby="address-leave-title" onCancel={onStay}>
     <h2 id="address-leave-title">{saving ? '地址正在保存' : editing ? '离开地址编辑？' : '离开新增地址？'}</h2>
     <p>{saving ? '请等待本次保存完成。' : '尚未保存的输入将被丢弃。结果待确认的保存请求仍会保留，可返回地址页继续确认。'}</p>
-    <div><button className="button" autoFocus onClick={onStay}>继续填写</button><button className="button button--primary" disabled={saving} onClick={onLeave}>确认离开</button></div>
+    <div><button className="button" autoFocus onClick={onStay}>{saving ? '继续等待' : '继续填写'}</button><button className="button button--primary" disabled={saving} onClick={onLeave}>确认离开</button></div>
   </dialog>;
 }
 
@@ -43,12 +43,13 @@ export function AddressesPage() {
   const keyword = readQuery(new URLSearchParams(returnPath.split('?')[1])).keyword;
   const [collapsed, setCollapsed] = useRailState();
   const [session, setSession] = useState(() => pendingSession(state.pending));
-  const [draft, setDraft] = useState<AddressCreateRequest>(() => ({ ...(state.pending?.request ?? emptyAddress()) }));
+  const [draft, setDraft] = useState<AddressCreateRequest>(() => ({ ...(pendingSession(state.pending)?.initial ?? emptyAddress()) }));
   const [errors, setErrors] = useState<AddressFieldErrors>({});
   const [editProblem, setEditProblem] = useState<string | null>(null);
   const [cancelRequested, setCancelRequested] = useState(false);
   const firstInput = useRef<HTMLInputElement>(null), addButton = useRef<HTMLButtonElement>(null);
   const returnFocus = useRef<HTMLElement | null>(null);
+  const addressHeadings = useRef(new Map<string, HTMLHeadingElement>());
   const editing = session?.kind === 'update';
   const dirty = !!session && (addressFields.some(field => draft[field.name] !== session.initial[field.name]) ||
     session.kind === 'create' && !!draft.is_default !== !!session.initial.is_default);
@@ -109,8 +110,18 @@ export function AddressesPage() {
       if (session.kind === 'update' && error instanceof AddressError && ['EDIT_CONFLICT', 'NOT_FOUND'].includes(error.code)) setEditProblem(error.message);
     }
   }
+  function focusAddress(addressId: string) {
+    requestAnimationFrame(() => addressHeadings.current.get(addressId)?.focus({ preventScroll: true }));
+  }
+  async function setDefault(addressId: string) {
+    try { await store.setDefault(addressId); focusAddress(addressId); } catch { /* Store exposes the error and recovery action. */ }
+  }
   async function retry() {
-    try { await store.retry(); if (session && state.pending) closeForm(); } catch (error) {
+    try {
+      await store.retry();
+      if (state.pending?.kind === 'set-default') focusAddress(state.pending.address_id);
+      else if (session && state.pending) closeForm();
+    } catch (error) {
       if (editing && error instanceof AddressError && ['EDIT_CONFLICT', 'NOT_FOUND'].includes(error.code)) setEditProblem(error.message);
     }
   }
@@ -129,8 +140,8 @@ export function AddressesPage() {
       </div>
       <p className="address-demo-note">当前为本机演示，请填写虚构信息，不会发起实际配送。</p>
       {state.notice && <p className="cart-notice" role="status">{state.notice}</p>}
-      {state.error && !editProblem && <div className="cart-error" role="alert"><p>{state.error}</p><button className="button" disabled={busy} onClick={() => void retry()}>{state.pending ? state.pending.kind === 'update' ? '确认上次编辑结果' : '确认上次新增结果' : '重新加载地址'}</button></div>}
-      {state.pending && !state.saving && <p className="address-demo-note">上次保存结果尚待确认，暂不能再次保存或更改本次输入。</p>}
+      {state.error && !editProblem && <div className="cart-error" role="alert"><p>{state.error}</p><button className="button" disabled={busy} onClick={() => void retry()}>{state.pending ? state.pending.kind === 'set-default' ? '确认上次默认设置结果' : state.pending.kind === 'update' ? '确认上次编辑结果' : '确认上次新增结果' : '重新加载地址'}</button></div>}
+      {state.pending && !state.saving && <p className="address-demo-note">{state.pending.kind === 'set-default' ? '上次默认设置结果尚待确认，暂不能新增、编辑或再次切换默认地址。' : '上次保存结果尚待确认，暂不能再次保存或更改本次输入。'}</p>}
       <section aria-label="地址簿" aria-busy={busy}>
         {state.status === 'loading' && <p className="cart-loading-copy" role="status">正在加载地址…</p>}
         {session && <form className="address-form" aria-label={editing ? '编辑收货地址' : '新增收货地址'} noValidate onSubmit={save}>
@@ -150,9 +161,12 @@ export function AddressesPage() {
         </form>}
         {state.status === 'ready' && !state.items.length && !session && <div className="empty-state"><h2>还没有收货地址</h2><p>点击新增地址，保存第一条虚构演示地址。</p></div>}
         {!!state.items.length && <div className="address-grid">{state.items.map(address => <article className="address-card" key={address.address_id} data-address-id={address.address_id}>
-          <div><h2>{address.recipient_name}</h2>{address.is_default && <span className="address-default-badge">默认地址</span>}</div>
+          <div><h2 tabIndex={-1} ref={element => { if (element) addressHeadings.current.set(address.address_id, element); else addressHeadings.current.delete(address.address_id); }}>{address.recipient_name}</h2>{address.is_default && <span className="address-default-badge">默认地址</span>}</div>
           <p>{address.recipient_phone}</p><p>{address.province} {address.city} {address.district}</p><p>{address.detail_address}</p>
-          {addressesAvailable && <button className="text-button" aria-label={`编辑${address.recipient_name}的地址`} disabled={busy || state.status !== 'ready' || !!state.pending || !!session} onClick={event => edit(address, event.currentTarget)}>编辑</button>}
+          {addressesAvailable && <div className="address-actions">
+            <button className="text-button" aria-label={`编辑${address.recipient_name}的地址`} disabled={locked || state.status !== 'ready' || !!session} onClick={event => edit(address, event.currentTarget)}>编辑</button>
+            {!address.is_default && <button className="text-button" aria-label={`将${address.recipient_name}的地址设为默认`} disabled={locked || state.status !== 'ready' || !!session} onClick={() => void setDefault(address.address_id)}>{state.saving && state.pending?.kind === 'set-default' && state.pending.address_id === address.address_id ? '正在设置…' : '设为默认'}</button>}
+          </div>}
         </article>)}</div>}
       </section>
     </main>

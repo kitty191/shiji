@@ -40,6 +40,10 @@ export class AddressStore {
     if (!addressId) return Promise.reject(new AddressError('INVALID_ARGUMENT', '请先选择要编辑的地址。'));
     return this.begin({ kind: 'update', address_id: addressId, request: normalized });
   };
+  setDefault = (addressId: string): Promise<void> => {
+    if (!addressId) return Promise.reject(new AddressError('INVALID_ARGUMENT', '请先选择要设为默认的地址。'));
+    return this.begin({ kind: 'set-default', address_id: addressId });
+  };
   private begin(operation: AddressOperation): Promise<void> {
     const signature = JSON.stringify(operation);
     if (this.attempt && this.attempt.signature !== signature) return Promise.reject(new AddressError('REQUEST_IN_PROGRESS', '请先确认上一次地址保存的结果。'));
@@ -55,14 +59,15 @@ export class AddressStore {
       try {
         if (!attempt.result) attempt.result = operation.kind === 'create'
           ? await this.gateway.create(operation.request, attempt.key)
-          : await this.gateway.update(operation.address_id, operation.request, attempt.key);
+          : operation.kind === 'update' ? await this.gateway.update(operation.address_id, operation.request, attempt.key)
+          : await this.gateway.setDefault(operation.address_id, attempt.key);
         const items = await this.gateway.read();
         this.attempt = null;
-        this.set({ items, status: 'ready', error: null, pending: null, notice: operation.kind === 'create' ? '收货地址已保存。' : '收货地址已更新。' });
+        this.set({ items, status: 'ready', error: null, pending: null, notice: operation.kind === 'create' ? '收货地址已保存。' : operation.kind === 'update' ? '收货地址已更新。' : '默认设置已确认，已显示最新地址列表。' });
       } catch (error) {
         const pending = !!attempt.result || !(error instanceof AddressError) || error.retryable;
         if (!pending) this.attempt = null;
-        this.set({ pending: pending ? attempt.operation : null, error: attempt.result ? '地址已保存，列表暂未更新，请重试读取。' : message(error) });
+        this.set({ pending: pending ? attempt.operation : null, error: attempt.result ? operation.kind === 'set-default' ? '默认设置已保存，列表暂未更新，请重试读取。' : '地址已保存，列表暂未更新，请重试读取。' : message(error) });
         throw error;
       } finally { this.flight = null; this.set({ saving: false }); }
     })();

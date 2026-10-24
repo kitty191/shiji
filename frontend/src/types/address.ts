@@ -16,17 +16,19 @@ export interface Address extends AddressCreateRequest {
   edit_token: string;
 }
 
-// This form sends all six contact fields. Default selection is a later step.
+// Editing sends contact fields only; default selection is a separate operation.
 export interface AddressEditRequest extends Omit<AddressCreateRequest, 'is_default'> {
   edit_token: string;
 }
 
 export type AddressOperation =
   | { kind: 'create'; request: AddressCreateRequest }
-  | { kind: 'update'; address_id: string; request: AddressEditRequest };
+  | { kind: 'update'; address_id: string; request: AddressEditRequest }
+  | { kind: 'set-default'; address_id: string };
 
 export interface AddressGateway {
   read(): Promise<Address[]>;
   create(request: AddressCreateRequest, key: string): Promise<Address>;
   update(addressId: string, request: AddressEditRequest, operationKey: string): Promise<Address>;
+  setDefault(addressId: string, key: string): Promise<Address>;
 }

@@ -56,6 +56,33 @@ export class MockAddresses {
     while (this.receipts.size > 200) this.receipts.delete(this.receipts.keys().next().value!);
     return structuredClone(address);
   }
+  setDefault(addressId: string, key: string): Address {
+    if (!addressId || !key) throw new AddressError('INVALID_ARGUMENT', '地址与操作标记不能为空。');
+    const fingerprint = JSON.stringify(['set-default', addressId]), receipt = this.receipts.get(key);
+    // Confirm the original result without reapplying an old switch after a later one.
+    if (receipt) {
+      if (receipt.fingerprint !== fingerprint) throw new AddressError('IDEMPOTENCY_CONFLICT', '操作标记与默认地址不一致。');
+      return structuredClone(receipt.result);
+    }
+    const previous = this.read(), original = previous.find(item => item.address_id === addressId);
+    if (!original) throw new AddressError('NOT_FOUND', '这条地址已不存在，请重新加载地址列表。');
+    let address = original;
+    if (!original.is_default) {
+      const timestamp = new Date((this.options.now ?? Date.now)()).toISOString();
+      const next = previous.map(item => {
+        const is_default = item.address_id === addressId;
+        return item.is_default === is_default ? item : { ...item, is_default, updated_at: timestamp, edit_token: `mock_${crypto.randomUUID()}` };
+      });
+      // One snapshot write switches both flags; a storage failure leaves both intact.
+      try { this.options.save?.(JSON.stringify({ version: 1, items: next })); }
+      catch { throw new AddressError('SERVICE_UNAVAILABLE', '默认地址暂时无法更新，请稍后重试。'); }
+      this.items = next;
+      address = next.find(item => item.address_id === addressId)!;
+    }
+    this.receipts.set(key, { fingerprint, result: structuredClone(address) });
+    while (this.receipts.size > 200) this.receipts.delete(this.receipts.keys().next().value!);
+    return structuredClone(address);
+  }
   update(addressId: string, request: AddressEditRequest, operationKey: string): Address {
     const normalized = addressEditRequest(request, request.edit_token);
     const fingerprint = JSON.stringify(['update', addressId, normalized]);
