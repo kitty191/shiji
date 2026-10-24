@@ -60,3 +60,21 @@ export function skuFrame(product: ProductDetail, sku?: PublicSku): string | unde
 export function buyerReturnPath(value: string | null): string {
   return value === '/buyer' || (value?.startsWith('/buyer?') && !value.includes('#')) ? value : '/buyer';
 }
+
+export function cartPath(value: string | null): string {
+  const buyer = buyerReturnPath(value);
+  return buyer === '/buyer' ? '/cart' : `/cart?${new URLSearchParams({ return_to: buyer })}`;
+}
+
+// Detail returns may point to the cart, whose own return context is buyer-only.
+// Canonicalizing here prevents recursive cart links or arbitrary destinations.
+export function productReturnPath(value: string | null): string {
+  if (value === '/cart') return value;
+  if (value?.startsWith('/cart?') && !value.includes('#')) return cartPath(new URLSearchParams(value.slice(6)).get('return_to'));
+  return buyerReturnPath(value);
+}
+
+export function buyerContextPath(value: string | null): string {
+  const path = productReturnPath(value);
+  return path === '/cart' || path.startsWith('/cart?') ? buyerReturnPath(new URLSearchParams(path.split('?')[1]).get('return_to')) : path;
+}

@@ -1,16 +1,18 @@
 import type { CartAddRequest, CartGateway, CartView } from '../types/cart.ts';
-import { CartError, emptyCart } from '../lib/cart.ts';
+import { CartError, emptyCart, selectableCartItem } from '../lib/cart.ts';
+import type { CartChoices } from '../lib/cart.ts';
 
 interface CartState {
   view: CartView; status: 'idle' | 'loading' | 'ready' | 'error'; adding: boolean;
   error: string | null; notice: string | null; retryPending: boolean;
+  choices: CartChoices;
 }
 interface Attempt { request: CartAddRequest; key: string; confirmed: boolean }
 
 export class CartStore {
   private gateway: CartGateway;
   private key: () => string;
-  private state: CartState = { view: emptyCart(), status: 'idle', adding: false, error: null, notice: null, retryPending: false };
+  private state: CartState = { view: emptyCart(), status: 'idle', adding: false, error: null, notice: null, retryPending: false, choices: {} };
   private listeners = new Set<() => void>();
   private loading: Promise<void> | null = null;
   private adding: Promise<void> | null = null;
@@ -18,7 +20,19 @@ export class CartStore {
   constructor(gateway: CartGateway, key = () => crypto.randomUUID()) { this.gateway = gateway; this.key = key; }
   getSnapshot = (): CartState => this.state;
   subscribe = (listener: () => void): (() => void) => { this.listeners.add(listener); return () => this.listeners.delete(listener); };
-  private set(patch: Partial<CartState>): void { this.state = { ...this.state, ...patch }; this.listeners.forEach(listener => listener()); }
+  private set(patch: Partial<CartState>): void {
+    if (patch.view) {
+      const ids = new Set(patch.view.groups.flatMap(group => group.items.map(item => item.item_id)));
+      patch.choices = Object.fromEntries(Object.entries(patch.choices ?? this.state.choices).filter(([id]) => ids.has(id)));
+    }
+    this.state = { ...this.state, ...patch }; this.listeners.forEach(listener => listener());
+  }
+  select = (ids: readonly string[], checked: boolean): void => {
+    const eligible = new Set(this.state.view.groups.flatMap(group => group.items.filter(selectableCartItem).map(item => item.item_id)));
+    const choices = { ...this.state.choices };
+    ids.forEach(id => { if (eligible.has(id)) choices[id] = checked; });
+    this.set({ choices });
+  };
   load = (): Promise<void> => {
     if (this.adding) return this.adding;
     if (this.loading) return this.loading;
@@ -41,7 +55,9 @@ export class CartStore {
         if (!attempt.confirmed) { await this.gateway.add(attempt.request, attempt.key); attempt.confirmed = true; }
         const view = await this.gateway.read();
         this.attempt = null;
-        this.set({ view, status: 'ready', notice: '已加入购物车', error: null, retryPending: false });
+        const choices = { ...this.state.choices };
+        view.groups.flatMap(group => group.items).filter(item => item.sku_id === attempt.request.sku_id).forEach(item => { choices[item.item_id] = true; });
+        this.set({ view, status: 'ready', notice: '已加入购物车', error: null, retryPending: false, choices });
       } catch (error) {
         const uncertain = attempt.confirmed || !(error instanceof CartError) || error.retryable;
         if (!uncertain) this.attempt = null;
