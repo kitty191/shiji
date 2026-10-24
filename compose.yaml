@@ -1,0 +1,27 @@
+name: shiji
+
+# Optional cached tools only. Existing Mac databases stay outside Docker.
+services:
+  java-tools:
+    profiles: [tools]
+    image: maven:3.9-eclipse-temurin-21@sha256:99e61abcff91a9b1333463bd8451fb18495d6eba9250ac66a338b518f8278320
+    pull_policy: never
+    working_dir: /workspace
+    volumes:
+      - .:/workspace
+      - maven-cache:/root/.m2
+    command: [mvn, --version]
+
+  node-tools:
+    profiles: [tools]
+    image: node:24-bookworm-slim@sha256:55fb5f5a527ea2c5c4a95f963e48ef90aa38c7b346054fdc8ee9957a2b55d205
+    pull_policy: never
+    working_dir: /workspace
+    volumes:
+      - .:/workspace
+      - npm-cache:/root/.npm
+    command: [node, --version]
+
+volumes:
+  maven-cache:
+  npm-cache:

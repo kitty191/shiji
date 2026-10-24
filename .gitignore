@@ -1,0 +1,28 @@
+# Local files
+.DS_Store
+*.log
+
+# Secrets and machine-specific environment values
+.env
+.env.*
+!.env.example
+!.env.*.example
+*.pem
+*.key
+
+# Generated dependencies and build output
+node_modules/
+dist/
+target/
+__pycache__/
+*.pyc
+.venv/
+
+# Runtime data and local backups; schema/seed source remains versioned
+/runtime-data/
+/backups/
+
+# Rebuilt from tracked prototype/image sources
+/frontend/public/images/
+/frontend/public/prototype/
+.sites-runtime/

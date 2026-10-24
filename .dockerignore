@@ -1,0 +1,12 @@
+.git
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+node_modules
+target
+dist
+backups
+runtime-data
+.DS_Store

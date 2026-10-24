@@ -1,0 +1,98 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+project_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$project_root"
+
+use_java() {
+  if [[ "$(uname -s)" != Darwin ]]; then
+    echo 'This local wrapper selects the installed macOS JDK 21.' >&2
+    exit 1
+  fi
+  JAVA_HOME="$(/usr/libexec/java_home -v 21)"
+  export JAVA_HOME
+  export PATH="$JAVA_HOME/bin:$PATH"
+}
+
+find_docker() {
+  if command -v docker >/dev/null 2>&1; then
+    docker_command="$(command -v docker)"
+  elif [[ -x /Applications/Docker.app/Contents/Resources/bin/docker ]]; then
+    docker_command=/Applications/Docker.app/Contents/Resources/bin/docker
+  elif [[ -x "$HOME/.docker/bin/docker" ]]; then
+    docker_command="$HOME/.docker/bin/docker"
+  else
+    echo 'Docker CLI is missing. Install and start Docker Desktop first.' >&2
+    exit 1
+  fi
+  export PATH="$(dirname "$docker_command"):$PATH"
+}
+
+compose_command() {
+  find_docker
+  # Tool containers receive no native or abandoned container DB credentials.
+  "$docker_command" compose --env-file /dev/null -f "$project_root/compose.yaml" "$@"
+}
+
+case "${1:-help}" in
+  java)
+    shift
+    use_java
+    exec "$JAVA_HOME/bin/java" "$@"
+    ;;
+  mvn)
+    shift
+    use_java
+    exec mvn "$@"
+    ;;
+  docker)
+    shift
+    find_docker
+    exec "$docker_command" "$@"
+    ;;
+  compose)
+    shift
+    # Keep container credentials separate from the earlier native-service .env.
+    compose_command "$@"
+    ;;
+  check|check-native)
+    use_java
+    echo '--- Project Java ---'
+    "$JAVA_HOME/bin/java" -version
+    echo '--- Maven ---'
+    mvn -version
+    echo '--- Native Node ---'
+    if command -v node >/dev/null 2>&1; then node --version; else echo 'Node is missing'; fi
+    echo '--- Local services (read-only probes) ---'
+    python3 scripts/check_services.py
+    echo '--- Docker ---'
+    find_docker
+    "$docker_command" version
+    "$docker_command" compose version
+    ;;
+  demo)
+    exec python3 -m http.server 8765 --bind 127.0.0.1 --directory frontend/demo
+    ;;
+  help|-h|--help)
+    cat <<'HELP'
+Local commands (run from the project directory):
+  ./scripts/dev check                  Check native tools, services and Docker
+  ./scripts/dev check-native           Same read-only checks
+  ./scripts/dev java -version          Use the installed JDK 21
+  ./scripts/dev mvn -version           Run Maven with JDK 21
+  ./scripts/dev docker version         Use Docker Desktop's CLI
+  ./scripts/dev compose --profile tools config --quiet
+  ./scripts/dev compose run --rm java-tools
+  ./scripts/dev compose run --rm node-tools
+  ./scripts/dev demo                   Existing HTML Demo only; optional preview
+
+Compose contains optional tools only, with pull_policy: never.
+No database/frontend containers are configured. No credentials are injected.
+No command here initializes a database or deletes data. React frontend lives in frontend/.
+HELP
+    ;;
+  *)
+    echo "Unknown command: $1. Run ./scripts/dev help." >&2
+    exit 2
+    ;;
+esac
