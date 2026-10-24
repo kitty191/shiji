@@ -7,7 +7,7 @@ export function ProductCard({ product }: { product: Product }) {
   const returnTo = location.pathname === '/buyer' ? `${location.pathname}${location.search}` : new URLSearchParams(location.search).get('return_to') || '/buyer';
   const target = `/products/${encodeURIComponent(product.product_id)}?${new URLSearchParams({ return_to: returnTo })}`;
   const state = { fromBuyer: location.pathname === '/buyer' };
-  const remember = () => { if (location.pathname === '/buyer') rememberBuyerPosition(returnTo); };
+  const remember = () => { if (location.pathname === '/buyer') rememberBuyerPosition(returnTo, location.key); };
   const soldOut = product.stock_status === 'SOLD_OUT';
   return <article className="product-card">
     <Link className="product-image" to={target} state={state} onClick={remember} aria-label={`查看${product.name}详情`}>

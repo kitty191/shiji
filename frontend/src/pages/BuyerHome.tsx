@@ -17,26 +17,27 @@ export function BuyerHome() {
   const priceKey = queryParams({ ...query, feed_token: undefined }).toString();
   const attachedFeed = useRef<{ key: string; reload: number } | null>(null);
   const [categories, setCategories] = useState<Category[]>([]), [page, setPage] = useState<ProductPage | null>(null);
+  const [loadedKey, setLoadedKey] = useState<string | null>(null);
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading'), [error, setError] = useState('');
   const [feedExpired, setFeedExpired] = useState(false);
   const [reload, setReload] = useState(0), [minimum, setMinimum] = useState(''), [maximum, setMaximum] = useState(''), [priceError, setPriceError] = useState('');
   const [collapsed, setCollapsed] = useRailState();
-  useBuyerPosition(status === 'ready');
+  useBuyerPosition(status === 'ready' && loadedKey === key);
   useEffect(() => { setMinimum(query.min_price === undefined ? '' : String(query.min_price / 100)); setMaximum(query.max_price === undefined ? '' : String(query.max_price / 100)); setPriceError(''); }, [priceKey]);
   useEffect(() => {
     // Attaching the returned token to this history entry reuses the response just loaded.
     const attached = attachedFeed.current;
     attachedFeed.current = null;
     if (attached?.key === key && attached.reload === reload) return;
-    const controller = new AbortController(); setStatus('loading'); setError(''); setFeedExpired(false);
+    const controller = new AbortController(); setStatus('loading'); setLoadedKey(null); setError(''); setFeedExpired(false);
     Promise.all([getCategories(controller.signal), getProducts(readQuery(new URLSearchParams(key)), controller.signal)])
       .then(([nextCategories, nextPage]) => {
         if (controller.signal.aborted) return;
-        setCategories(nextCategories); setPage(nextPage); setStatus('ready');
         const nextParams = new URLSearchParams(key);
         if (nextPage.feed_token) nextParams.set('feed_token', nextPage.feed_token);
         else nextParams.delete('feed_token');
         const nextKey = nextParams.toString();
+        setCategories(nextCategories); setPage(nextPage); setLoadedKey(nextKey); setStatus('ready');
         if (nextKey !== key) {
           attachedFeed.current = { key: nextKey, reload };
           setParams(nextParams, { replace: true, preventScrollReset: true });

@@ -33,6 +33,16 @@ export function productQuantity(raw: string | null, sku?: PublicSku): number {
   return Number.isSafeInteger(number) && number > 0 ? Math.min(number, Math.max(1, quantityLimit(sku))) : 1;
 }
 
+// Persist the resolved selection and visible quantity, so a later response cannot
+// silently select another SKU or resurrect a quantity already reduced by stock.
+export function normalizeProductParams(product: ProductDetail, params: URLSearchParams): URLSearchParams {
+  const next = new URLSearchParams(params);
+  const sku = selectedSku(product, params.get('sku_id'));
+  if (sku && !params.has('sku_id')) next.set('sku_id', sku.sku_id);
+  next.set('quantity', String(productQuantity(params.get('quantity'), sku)));
+  return next;
+}
+
 export interface GalleryFrame extends ProductImage { label: string; cropped: boolean }
 export function galleryFrames(product: ProductDetail): GalleryFrame[] {
   const images = product.images.toSorted((a, b) => a.sort_order - b.sort_order);

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buyerReturnPath, galleryFrames, productQuantity, quantityLimit, selectedSku, skuFrame, skuLabel } from '../src/lib/product.ts';
+import { buyerReturnPath, galleryFrames, normalizeProductParams, productQuantity, quantityLimit, selectedSku, skuFrame, skuLabel } from '../src/lib/product.ts';
 import { productDetails, mockProductView } from '../src/mocks/product.ts';
 
 const lamp = () => structuredClone(productDetails.find(product => product.product_id === 'lamp'));
@@ -77,4 +77,48 @@ test('mock detail fixtures agree with list prices, have unique SKU IDs, and dist
   assert.equal(new Set(ids).size, ids.length);
   assert.equal(mockProductView('stand').view_status, 'OFF_SALE');
   assert.equal(mockProductView('not-found'), undefined);
+});
+
+test('an automatically selected SKU survives URL restoration even if it later sells out', () => {
+  const product = lamp();
+  const saved = normalizeProductParams(product, new URLSearchParams('quantity=3'));
+  assert.equal(saved.get('sku_id'), 'lamp_white-usb');
+  const changed = lamp();
+  changed.skus[0].status = 'SOLD_OUT'; changed.skus[0].available_stock = 0;
+  const restored = normalizeProductParams(changed, new URLSearchParams(saved.toString()));
+  assert.equal(restored.get('sku_id'), 'lamp_white-usb');
+  assert.equal(selectedSku(changed, restored.get('sku_id')).status, 'SOLD_OUT');
+});
+
+test('quantity reduced by stock is persisted and does not rebound when inventory recovers', () => {
+  const product = lamp();
+  const saved = normalizeProductParams(product, new URLSearchParams('sku_id=lamp_white-battery&quantity=6'));
+  product.skus[1].available_stock = 2;
+  const reduced = normalizeProductParams(product, saved);
+  assert.equal(reduced.get('quantity'), '2');
+  product.skus[1].available_stock = 6;
+  const restored = normalizeProductParams(product, new URLSearchParams(reduced.toString()));
+  assert.equal(restored.get('quantity'), '2');
+  assert.equal(productQuantity(restored.get('quantity'), selectedSku(product, restored.get('sku_id'))), 2);
+});
+
+test('normalizing an invalid explicit SKU or an all-sold-out product never selects a replacement', () => {
+  const product = lamp();
+  const invalid = normalizeProductParams(product, new URLSearchParams('sku_id=retired&quantity=6'));
+  assert.equal(invalid.get('sku_id'), 'retired'); assert.equal(invalid.get('quantity'), '1');
+  product.skus.forEach(sku => { sku.status = 'SOLD_OUT'; sku.available_stock = 0; });
+  const soldOut = normalizeProductParams(product, new URLSearchParams());
+  assert.equal(soldOut.has('sku_id'), false);
+  assert.equal(soldOut.get('quantity'), '1');
+});
+
+test('normalization preserves gallery and opaque return context without mutating the input', () => {
+  const params = new URLSearchParams({ return_to: '/buyer?feed_token=opaque+/=#中文', image_id: 'lamp-main:crop', quantity: 'bad' });
+  const before = params.toString();
+  const normalized = normalizeProductParams(lamp(), params);
+  assert.equal(params.toString(), before);
+  assert.equal(normalized.get('return_to'), params.get('return_to'));
+  assert.equal(normalized.get('image_id'), params.get('image_id'));
+  assert.equal(normalized.get('quantity'), '1');
+  assert.equal(normalizeProductParams(lamp(), normalized).toString(), normalized.toString());
 });

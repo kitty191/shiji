@@ -7,7 +7,7 @@ import { FloatingTools, useRailState } from '../components/FloatingTools.tsx';
 import { ProductGallery } from '../components/ProductGallery.tsx';
 import { ProductCard } from '../components/ProductCard.tsx';
 import { formatMoney, prototypeUrl, queryParams, readQuery } from '../lib/catalog.ts';
-import { buyerReturnPath, completeSku, galleryFrames, inStock, productQuantity, quantityLimit, selectedSku, skuFrame, skuLabel } from '../lib/product.ts';
+import { buyerReturnPath, completeSku, galleryFrames, inStock, normalizeProductParams, productQuantity, quantityLimit, selectedSku, skuFrame, skuLabel } from '../lib/product.ts';
 import type { OffSaleView, ProductCard as Card, ProductDetail as Product, ProductView } from '../types/catalog.ts';
 
 function OffSale({ product }: { product: OffSaleView }) {
@@ -38,15 +38,20 @@ function OffSale({ product }: { product: OffSaleView }) {
 function ProductContent({ product }: { product: Product }) {
   const [params, setParams] = useSearchParams();
   const location = useLocation();
-  const sku = selectedSku(product, params.get('sku_id'));
+  const key = params.toString();
+  const normalized = normalizeProductParams(product, params), normalizedKey = normalized.toString();
+  const sku = selectedSku(product, normalized.get('sku_id'));
   const frames = galleryFrames(product);
   const activeFrame = params.get('image_id') || skuFrame(product, sku) || frames[0]?.image_id;
-  const quantity = productQuantity(params.get('quantity'), sku);
+  const quantity = productQuantity(normalized.get('quantity'), sku);
   const limit = quantityLimit(sku);
   const available = !!sku && inStock(sku);
   const allSoldOut = !product.skus.some(item => completeSku(product, item) && inStock(item));
+  useEffect(() => {
+    if (key !== normalizedKey) setParams(new URLSearchParams(normalizedKey), { replace: true, preventScrollReset: true, state: location.state });
+  }, [key, normalizedKey, setParams, location.state]);
   function update(patch: Record<string, string | null>) {
-    const next = new URLSearchParams(params);
+    const next = new URLSearchParams(normalizedKey);
     Object.entries(patch).forEach(([key, value]) => value === null ? next.delete(key) : next.set(key, value));
     setParams(next, { replace: true, preventScrollReset: true, state: location.state });
   }
@@ -65,7 +70,7 @@ function ProductContent({ product }: { product: Product }) {
         <fieldset className="sku-options"><legend>选择规格</legend>
           <div>{product.skus.filter(item => completeSku(product, item)).map(item => <button key={item.sku_id}
             aria-pressed={item.sku_id === sku?.sku_id} className={!inStock(item) ? 'sku-sold-out' : undefined}
-            onClick={() => update({ sku_id: item.sku_id, quantity: '1', image_id: null })}>
+            onClick={() => { if (item.sku_id !== sku?.sku_id) update({ sku_id: item.sku_id, quantity: '1', image_id: null }); }}>
             {skuLabel(product, item)}{!inStock(item) && <small>已售罄</small>}
           </button>)}</div>
         </fieldset>
