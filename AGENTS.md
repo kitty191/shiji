@@ -68,6 +68,8 @@
 
 ## Git 范围
 
+- D079：创建提交时以用户的 Git 身份为主作者；Codex 参与的改动添加 `Co-authored-by: Codex <codex@openai.com>`，让双方获得作者归属，不再将 Codex 设为唯一作者。此约定不扩大 commit / push 授权范围，也不修改全局 Git 身份。
+
 - 本目录是 kitty191/shiji 的独立仓库根，远程 https://github.com/kitty191/shiji.git。Git 写操作只作用于本仓库，不修改上层或旧规划目录的元数据。
 - 用户指定整个项目都在 shiji 根目录；frontend 与 backend 分目录、分依赖、分启动，文档和原型在同仓库维护。
 - D076 当前只完成第 1 批前端基础与买家首页；其他页面、Java、数据库迁移与 Agent 不在本批实现。不自动提交、推送或发布。
