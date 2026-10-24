@@ -69,7 +69,7 @@ export function BuyerHome() {
   const active = !!query.keyword || !!query.category_id || query.min_price !== undefined || query.max_price !== undefined;
   const sorts: [Sort, string][] = [['default', '综合'], ['price_asc', '价格 ↑'], ['price_desc', '价格 ↓'], ['newest', '最新上架']];
   return <div className="site-shell">
-    <div className="preview-note"><span>前端第 1 批 · 买家首页 · {usesMockData ? '模拟数据' : 'API 数据'}</span><a href={prototypeUrl('buyer')} target="_blank" rel="noopener noreferrer">查看完整交互原型 ↗</a></div>
+    <div className="preview-note"><span>买家商城预览 · {usesMockData ? '模拟数据' : 'API 数据'}</span><a href={prototypeUrl('buyer')} target="_blank" rel="noopener noreferrer">查看完整交互原型 ↗</a></div>
     <Header keyword={query.keyword} onSearch={keyword => update({ keyword })} />
     <main id="main-content" className={`catalog-page ${collapsed ? 'rail-collapsed' : ''}`}>
       <section className="hero"><h1>小预算，也能淘到好东西。</h1><p>数码配件 · 居家日用 · 户外小物</p></section>

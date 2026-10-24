@@ -6,6 +6,8 @@ import { Header } from '../components/Header.tsx';
 import { FloatingTools, useRailState } from '../components/FloatingTools.tsx';
 import { ProductGallery } from '../components/ProductGallery.tsx';
 import { ProductCard } from '../components/ProductCard.tsx';
+import { useCart } from '../components/CartContext.ts';
+import { cartAvailable } from '../api/cart.ts';
 import { formatMoney, prototypeUrl, queryParams, readQuery } from '../lib/catalog.ts';
 import { buyerReturnPath, completeSku, galleryFrames, inStock, normalizeProductParams, productQuantity, quantityLimit, selectedSku, skuFrame, skuLabel } from '../lib/product.ts';
 import type { OffSaleView, ProductCard as Card, ProductDetail as Product, ProductView } from '../types/catalog.ts';
@@ -36,6 +38,7 @@ function OffSale({ product }: { product: OffSaleView }) {
 }
 
 function ProductContent({ product }: { product: Product }) {
+  const cart = useCart();
   const [params, setParams] = useSearchParams();
   const location = useLocation();
   const key = params.toString();
@@ -80,8 +83,10 @@ function ProductContent({ product }: { product: Product }) {
           <output aria-label="已选数量">{quantity}</output>
           <button aria-label="增加数量" disabled={!available || quantity >= limit} onClick={() => update({ quantity: String(quantity + 1) })}>+</button>
         </div><span className="stock-copy">{sku ? available ? `库存 ${sku.available_stock} 件` : '当前规格已售罄' : allSoldOut ? '全部规格已售罄' : '请选择规格'}{available && sku.available_stock > 99 ? ' · 单次最多 99 件' : ''}</span></div>
-        <div className="detail-actions"><button className="button" disabled aria-describedby="purchase-note">加入购物车</button><button className="button button--primary" disabled aria-describedby="purchase-note">立即购买</button></div>
-        <p className="detail-preview-note" id="purchase-note">当前可浏览商品与选择规格；购物车和购买功能将在后续模块接入。</p>
+        <div className="detail-actions"><button className="button" disabled={!available || !cartAvailable || cart.state.adding || cart.state.retryPending} aria-describedby="purchase-note" onClick={() => {
+          if (sku) void cart.store.add({ sku_id: sku.sku_id, quantity }).then(cart.show).catch(cart.show);
+        }}>{cart.state.adding ? '正在加入…' : '加入购物车'}</button><button className="button button--primary" disabled aria-describedby="purchase-note">立即购买</button></div>
+        <p className="detail-preview-note" id="purchase-note">{cartAvailable ? '可加入模拟购物车；购买结算暂未开放。' : '当前仅接入商品查询，购物车与购买暂不可用。'}</p>
       </section>
     </div>
     <section className="detail-attributes" aria-label="商品参数"><h2>商品资料</h2><dl>{product.attributes.map((attribute, index) => <div key={`${attribute.name}-${index}`}><dt>{attribute.name}</dt><dd>{attribute.value}</dd></div>)}</dl></section>

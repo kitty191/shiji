@@ -3,9 +3,10 @@ import { createRoot } from 'react-dom/client';
 import { createHashRouter, Navigate, Outlet, RouterProvider, ScrollRestoration } from 'react-router-dom';
 import { BuyerHome } from './pages/BuyerHome.tsx';
 import { ProductDetail } from './pages/ProductDetail.tsx';
+import { CartProvider } from './components/CartProvider.tsx';
 import './styles.css';
 
-const router = createHashRouter([{ element: <><Outlet /><ScrollRestoration /></>, children: [
+const router = createHashRouter([{ element: <CartProvider><Outlet /><ScrollRestoration /></CartProvider>, children: [
   { path: '/', element: <Navigate to="/buyer" replace /> },
   { path: '/buyer', element: <BuyerHome /> },
   { path: '/products/:productId', element: <ProductDetail /> },
