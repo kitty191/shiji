@@ -1,4 +1,6 @@
 import type { Address } from '../types/address.ts';
+import type { MerchantOrderDetail, MerchantOrderPage, MerchantOrderQuery, MerchantOrderSummary } from '../types/merchant.ts';
+import type { StoreBrief } from '../types/catalog.ts';
 import type { ProductView } from '../types/catalog.ts';
 import type { AddressSnapshot, BuyerOrder, CheckoutGroup, CheckoutLine, CheckoutPreview, CheckoutRequest, OrderPage, OrderQuery, PaymentGroup } from '../types/commerce.ts';
 import { CommerceError, normalizeSelection, orderStatuses } from '../lib/commerce.ts';
@@ -11,6 +13,7 @@ interface Receipt { action: 'submit' | 'cancel' | 'pay'; target: string; payment
 interface Ledger { version: 1; orders: BuyerOrder[]; payments: PaymentGroup[]; bindings: Record<string, string>; receipts: Record<string, Receipt> }
 interface Options {
   catalog: () => readonly ProductView[]; addresses: () => Address[]; load: () => string | null; save: (value: string) => void;
+  merchantStore?: () => StoreBrief | null;
   id?: () => string; now?: () => number; previewMs?: number; paymentMs?: number;
 }
 interface PreviewRecord { request: CheckoutRequest; quote: CheckoutPreview }
@@ -214,6 +217,32 @@ export class MockCommerce {
     if (payment.status === 'PENDING') this.close(ledger, payment, 'BUYER_CANCELLED', new Date(this.time()).toISOString());
     ledger.receipts = { ...ledger.receipts, [key]: { action: 'cancel', target: paymentId, payment_group_id: paymentId } };
     this.write(cart, ledger); return structuredClone(payment);
+  }
+  private merchantStore(): StoreBrief {
+    const store = this.options.merchantStore?.();
+    if (!store?.store_id || !store.name) throw new CommerceError('FORBIDDEN', '当前账号没有可查看的店铺订单。');
+    return store;
+  }
+  private merchantSummary(order: BuyerOrder): MerchantOrderSummary {
+    const { order_id, order_no, store_id, store_name, status, goods_amount, shipping_amount, total_amount, items, currency, created_at } = order;
+    return structuredClone({ order_id, order_no, store_id, store_name, status, goods_amount, shipping_amount, total_amount, items, currency, created_at, allowed_actions: [] });
+  }
+  merchantOrders(query: MerchantOrderQuery): MerchantOrderPage {
+    const store = this.merchantStore();
+    if (!Number.isSafeInteger(query.page) || query.page < 1 || !Number.isSafeInteger(query.page_size) || query.page_size < 1 || query.page_size > 50 ||
+      (query.status && !Object.hasOwn(orderStatuses, query.status)) || typeof query.order_no !== 'string' || typeof query.keyword !== 'string') throw new CommerceError('INVALID_ARGUMENT', '订单筛选条件无效，请重新查询。');
+    const keyword = query.keyword.trim().toLocaleLowerCase(), orderNo = query.order_no.trim();
+    const items = this.read().ledger.orders.filter(o => o.store_id === store.store_id)
+      .filter(o => (!query.status || o.status === query.status) && (!orderNo || o.order_no.includes(orderNo)) && (!keyword || o.items.some(line => line.name.toLocaleLowerCase().includes(keyword))))
+      .sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at) || (a.order_id < b.order_id ? 1 : a.order_id > b.order_id ? -1 : 0));
+    const start = (query.page - 1) * query.page_size;
+    return { items: items.slice(start, start + query.page_size).map(o => this.merchantSummary(o)), page: query.page, page_size: query.page_size, total: items.length, has_more: start + query.page_size < items.length };
+  }
+  merchantOrder(id: string): MerchantOrderDetail {
+    const store = this.merchantStore(), order = this.read().ledger.orders.find(o => o.order_id === id && o.store_id === store.store_id);
+    if (!order) throw new CommerceError('NOT_FOUND', '没有找到本店订单。');
+    const { address, payment_status, paid_at, shipping_carrier, tracking_no, shipped_at, received_at, closed_at, close_reason } = order;
+    return { ...this.merchantSummary(order), ...structuredClone({ address, payment_status, paid_at, shipping_carrier, tracking_no, shipped_at, received_at, closed_at, close_reason }) };
   }
   orders(query: OrderQuery): OrderPage {
     const items = this.read().ledger.orders.filter(o => (!query.status || o.status === query.status) && (!query.order_no || o.order_no.includes(query.order_no.trim())));

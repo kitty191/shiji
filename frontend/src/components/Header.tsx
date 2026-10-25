@@ -29,6 +29,7 @@ export function Header({ keyword, onSearch }: { keyword: string; onSearch: (keyw
           {[['profile', '个人资料'], ['orders', '我的订单'], ['addresses', '收货地址'], ['opening', '商家中心']].map(([page, text]) => (page === 'addresses' || page === 'orders')
             ? <Link key={page} to={page === 'orders' ? '/orders' : addressPath(returnPath)} onClick={() => setOpen(false)}>{text}</Link>
             : <a key={page} href={prototypeUrl(page)} target="_blank" rel="noopener noreferrer" title={`${text}（在新标签页查看原型）`}>{text}<span aria-hidden="true">↗</span></a>)}
+          <Link to="/merchant/orders" onClick={() => setOpen(false)}>店铺订单</Link>
         </nav>}
       </div>
     </div>

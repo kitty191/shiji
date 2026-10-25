@@ -10,6 +10,8 @@ import { AddressesPage } from './pages/AddressesPage.tsx';
 import { CheckoutPage } from './pages/CheckoutPage.tsx';
 import { OrdersPage } from './pages/OrdersPage.tsx';
 import { OrderDetailPage } from './pages/OrderDetailPage.tsx';
+import { MerchantOrdersPage } from './pages/MerchantOrdersPage.tsx';
+import { MerchantOrderDetailPage } from './pages/MerchantOrderDetailPage.tsx';
 import { PaymentResultPage } from './pages/PaymentResultPage.tsx';
 import { PaymentPage } from './pages/PaymentPage.tsx';
 import { CommerceProvider } from './components/CommerceProvider.tsx';
@@ -24,6 +26,8 @@ const router = createHashRouter([{
     { path: '/checkout', element: <CheckoutPage /> },
     { path: '/payments/:paymentId', element: <PaymentPage /> },
     { path: '/payments/:paymentId/result', element: <PaymentResultPage /> },
+    { path: '/merchant/orders', element: <MerchantOrdersPage /> },
+    { path: '/merchant/orders/:orderId', element: <MerchantOrderDetailPage /> },
     { path: '/orders', element: <OrdersPage /> },
     { path: '/orders/:orderId', element: <OrderDetailPage /> },
     { path: '/products/:productId', element: <ProductDetail /> },
