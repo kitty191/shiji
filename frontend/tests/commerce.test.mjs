@@ -189,3 +189,97 @@ test('standalone payment reads expose the complete persisted group without mutat
   assert.equal(restored.status, 'PENDING'); assert.equal(restored.total_amount, 24700); assert.ok(restored.shop_orders.every(o => o.total_amount > 0));
   assert.equal(f.writes(), writes); assert.equal(f.snapshot(), bytes); assert.equal(f.engine.orders(all).total, 2); assert.equal(f.engine.catalog()[1].skus[0].available_stock, 6);
 });
+
+test('payment atomically updates every shop order and retains deducted stock after expiry/reload', () => {
+  const f = fixture(), p = f.engine.submit(f.engine.preview(f.request).preview_token, 'submit');
+  const before = f.engine.orders(all).items, stock = f.engine.catalog(), writes = f.writes();
+  const paid = f.engine.pay(p.payment_group_id, 'pay');
+  assert.equal(f.writes(), writes + 1); assert.equal(paid.status, 'PAID'); assert.ok(paid.paid_at);
+  assert.deepEqual(paid.allowed_actions, []); assert.ok(paid.shop_orders.every(o => o.status === 'PENDING_SHIPMENT'));
+  for (const old of before) {
+    const order = f.engine.order(old.order_id);
+    assert.equal(order.status, 'PENDING_SHIPMENT'); assert.equal(order.payment_status, 'PAID'); assert.equal(order.paid_at, paid.paid_at);
+    assert.deepEqual(order.items, old.items); assert.deepEqual(order.address, old.address); assert.equal(order.total_amount, old.total_amount);
+  }
+  f.advance(2000); const reloaded = new MockCommerce(f.options);
+  assert.equal(reloaded.payment(p.payment_group_id).status, 'PAID'); assert.deepEqual(reloaded.catalog(), stock);
+  assert.equal(reloaded.orders({ ...all, status: 'PENDING_SHIPMENT' }).total, 2); assert.equal(f.cart.read().item_count, 0);
+  assert.throws(() => reloaded.cancel(p.payment_group_id, 'late-cancel'), code('INVALID_STATE'));
+});
+test('payment with original or fresh keys never deducts twice or changes paid time', () => {
+  const f = fixture(), p = f.engine.submit(f.engine.preview(f.direct).preview_token, 'submit');
+  const paid = f.engine.pay(p.payment_group_id, 'pay'), bytes = f.snapshot(), writes = f.writes(); f.advance(2000);
+  for (const key of ['pay', 'new-key']) { const result = new MockCommerce(f.options).pay(p.payment_group_id, key); assert.equal(result.status, 'PAID'); assert.equal(result.paid_at, paid.paid_at); }
+  assert.equal(f.writes(), writes + 1); assert.equal(f.engine.catalog()[1].skus[0].available_stock, 7);
+  const saved = f.snapshot(); f.engine.pay(p.payment_group_id, 'new-key'); assert.equal(f.snapshot(), saved);
+  assert.throws(() => f.engine.cancel(p.payment_group_id, 'new-key'), code('IDEMPOTENCY_CONFLICT'));
+});
+test('closed, missing and deadline-boundary payment attempts never write or revive orders', () => {
+  for (const close of ['cancel', 'timeout']) {
+    const f = fixture(), p = f.engine.submit(f.engine.preview(f.request).preview_token, 'submit');
+    if (close === 'cancel') f.engine.cancel(p.payment_group_id, 'cancel'); else f.advance(1000);
+    const bytes = f.snapshot(), writes = f.writes();
+    assert.throws(() => f.engine.pay(p.payment_group_id, 'pay'), code(close === 'timeout' ? 'PAYMENT_EXPIRED' : 'INVALID_STATE')); assert.throws(() => f.engine.pay('missing', 'missing'), code('NOT_FOUND'));
+    assert.equal(f.snapshot(), bytes); assert.equal(f.writes(), writes); assert.equal(f.engine.catalog()[1].skus[0].available_stock, 8);
+  }
+});
+test('payment read/save failures preserve all pending orders and allow retry after reread', () => {
+  for (const mode of ['read', 'write']) {
+    const f = fixture(), p = f.engine.submit(f.engine.preview(f.request).preview_token, 'submit'), bytes = f.snapshot();
+    if (mode === 'read') f.failRead(true); else f.fail(true);
+    assert.throws(() => f.engine.pay(p.payment_group_id, 'pay'), code('SERVICE_UNAVAILABLE')); assert.equal(f.snapshot(), bytes);
+    f.failRead(false); f.fail(false); assert.equal(f.engine.payment(p.payment_group_id).status, 'PENDING'); assert.ok(f.engine.orders(all).items.every(o => o.status === 'PENDING_PAYMENT'));
+    assert.equal(f.engine.pay(p.payment_group_id, 'pay').status, 'PAID');
+  }
+});
+test('paid inventory blocks overselling and survives unrelated cart writes', () => {
+  const f = fixture(), request = { ...f.direct, items: [{ sku_id: 'lamp_white-usb', quantity: 5 }] };
+  const p = f.engine.submit(f.engine.preview(request).preview_token, 'submit'); f.engine.pay(p.payment_group_id, 'pay'); f.advance(2000);
+  assert.throws(() => f.engine.preview(request), code('INSUFFICIENT_STOCK')); f.cart.add({ sku_id: 'mug_default', quantity: 1 }, 'mug');
+  const reloaded = new MockCommerce(f.options); assert.equal(reloaded.payment(p.payment_group_id).status, 'PAID'); assert.equal(reloaded.catalog()[1].skus[0].available_stock, 3);
+});
+test('payment keys are bound to action and payment group', () => {
+  const f = fixture(), a = f.engine.submit(f.engine.preview(f.direct).preview_token, 'submit-a'), b = f.engine.submit(f.engine.preview(f.direct).preview_token, 'submit-b');
+  assert.throws(() => f.engine.pay(a.payment_group_id, 'submit-a'), code('IDEMPOTENCY_CONFLICT')); f.engine.pay(a.payment_group_id, 'pay');
+  assert.throws(() => f.engine.pay(b.payment_group_id, 'pay'), code('IDEMPOTENCY_CONFLICT')); assert.throws(() => f.engine.cancel(a.payment_group_id, 'pay'), code('IDEMPOTENCY_CONFLICT'));
+  assert.equal(f.engine.payment(b.payment_group_id).status, 'PENDING');
+});
+test('lost payment response coalesces clicks and confirms original key across expiry', async () => {
+  const f = fixture(), p = f.engine.submit(f.engine.preview(f.request).preview_token, 'submit'); let lost = true; const keys = [];
+  const store = new CommerceStore({ pay: async (id, key) => { keys.push(key); const result = f.engine.pay(id, key); if (lost) { lost = false; throw Error('lost'); } return result; } }, () => 'pay-original');
+  const first = store.pay(p.payment_group_id); assert.equal(store.pay(p.payment_group_id), first); await assert.rejects(first);
+  assert.equal(store.getSnapshot().pending.kind, 'pay'); await assert.rejects(store.cancel(p.payment_group_id), code('REQUEST_IN_PROGRESS'));
+  f.advance(2000); const writes = f.writes(); assert.equal((await store.retry()).status, 'PAID'); assert.deepEqual(keys, ['pay-original', 'pay-original']); assert.equal(f.writes(), writes);
+  assert.equal(store.getSnapshot().pending, null); assert.equal(store.getSnapshot().busy, false);
+});
+test('definitive payment failure releases operation for a new attempt', async () => {
+  const f = fixture(), p = f.engine.submit(f.engine.preview(f.request).preview_token, 'submit'); let seq = 0;
+  const store = new CommerceStore({ pay: async (id, key) => f.engine.pay(id, key) }, () => `pay-${++seq}`);
+  f.fail(true); await assert.rejects(store.pay(p.payment_group_id), code('SERVICE_UNAVAILABLE')); assert.equal(store.getSnapshot().pending, null); assert.equal(store.getSnapshot().busy, false);
+  f.fail(false); assert.equal(f.engine.payment(p.payment_group_id).status, 'PENDING'); assert.equal((await store.pay(p.payment_group_id)).status, 'PAID');
+});
+test('old pending snapshots expose payment action without modifying persisted bytes', () => {
+  const f = fixture(), p = f.engine.submit(f.engine.preview(f.direct).preview_token, 'submit');
+  const old = JSON.parse(f.snapshot()); old.checkout.payments[0].allowed_actions = ['CANCEL']; f.options.save(JSON.stringify(old));
+  const bytes = f.snapshot(); assert.ok(new MockCommerce(f.options).payment(p.payment_group_id).allowed_actions.includes('SIMULATE_PAY'));
+  assert.equal(f.snapshot(), bytes); assert.equal(f.engine.pay(p.payment_group_id, 'pay').status, 'PAID');
+});
+
+test('historical pending orders can pay after catalog changes without changing snapshots or price', () => {
+  const f = fixture(), p = f.engine.submit(f.engine.preview(f.request).preview_token, 'submit'), before = f.engine.orders(all).items;
+  f.catalog.splice(0); f.addresses.remove(f.address.address_id, 'remove');
+  assert.equal(f.engine.pay(p.payment_group_id, 'pay').total_amount, p.total_amount);
+  for (const old of before) { const order = f.engine.order(old.order_id); assert.deepEqual(order.items, old.items); assert.deepEqual(order.address, old.address); }
+});
+test('inconsistent paid ledger blocks further writes instead of releasing paid inventory', () => {
+  const f = fixture(), p = f.engine.submit(f.engine.preview(f.request).preview_token, 'submit');
+  f.engine.pay(p.payment_group_id, 'pay'); const bad = JSON.parse(f.snapshot()); bad.checkout.orders[0].payment_status = 'PENDING'; f.options.save(JSON.stringify(bad));
+  const bytes = f.snapshot(); assert.throws(() => f.engine.pay(p.payment_group_id, 'pay-again'), code('SERVICE_UNAVAILABLE')); assert.throws(() => f.engine.catalog(), code('SERVICE_UNAVAILABLE')); assert.equal(f.snapshot(), bytes);
+});
+
+test('deadline crossed while preparing payment still rejects the transition without saving', () => {
+  const f = fixture(), p = f.engine.submit(f.engine.preview(f.direct).preview_token, 'submit'), bytes = f.snapshot(); let calls = 0;
+  f.options.now = () => Date.parse(p.expires_at) - (calls++ === 0 ? 1 : 0);
+  assert.throws(() => f.engine.pay(p.payment_group_id, 'boundary'), code('PAYMENT_EXPIRED')); assert.equal(f.snapshot(), bytes);
+  assert.equal(f.engine.payment(p.payment_group_id).status, 'CLOSED');
+});

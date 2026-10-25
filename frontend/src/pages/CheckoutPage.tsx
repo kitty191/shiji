@@ -78,7 +78,7 @@ export function CheckoutPage() {
         {transaction.state.error && !transaction.state.pending && <p className="field-error" role="alert">{transaction.state.error}</p>}
         <button className="button" disabled={blocked || addresses.state.saving || !!addresses.state.pending} onClick={() => void refresh()}>刷新地址与预览</button>
         <button className="button button--primary" disabled={!ready} onClick={() => void submit()}>{transaction.state.busy ? '正在提交…' : '提交订单'}</button>
-        <p className="workflow-muted">预览不占库存，提交时重新核验。提交后进入待付款，模拟付款将在后续批次开放。</p>
+        <p className="workflow-muted">预览不占库存，提交时重新核验。提交后进入付款页，可完成模拟付款。</p>
       </aside></div>
     </>}
   </BuyerWorkflow>;

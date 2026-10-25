@@ -40,6 +40,18 @@ export function PaymentPage() {
     }
   }, [result, paymentId]);
   function refresh() { focusAfterRead.current = true; setReload(value => value + 1); }
+  async function pay() {
+    if (!payment || locked || payment.status !== 'PENDING' || Date.parse(payment.expires_at) <= Date.now() || !payment.allowed_actions.includes('SIMULATE_PAY')) return;
+    setNotice(''); focusAfterRead.current = true;
+    try {
+      await transaction.store.pay(payment.payment_group_id);
+      setNotice('模拟付款成功，全部关联店铺订单已进入待发货。');
+      void cart.store.load().catch(() => undefined);
+    } catch {
+      // A definitive failure rechecks T03 before another attempt; unknown results keep the original key.
+      if (!transaction.store.getSnapshot().pending) setReload(value => value + 1);
+    }
+  }
   async function cancel() {
     if (!payment || locked || payment.status !== 'PENDING' || Date.parse(payment.expires_at) <= Date.now() || !payment.allowed_actions.includes('CANCEL')) return;
     setConfirm(false);
@@ -74,7 +86,7 @@ export function PaymentPage() {
       </section><aside className="workflow-panel checkout-summary" aria-label="支付单汇总"><h2>{payment.status === 'PAID' ? '已付金额' : '本次结算金额'}</h2><strong className="checkout-total">¥{formatMoney(payment.total_amount)}</strong>
         <dl className="order-metadata"><div><dt>创建时间</dt><dd>{formatDate(payment.created_at)}</dd></div><div><dt>付款截止</dt><dd>{formatDate(payment.expires_at)}</dd></div>{payment.paid_at && <div><dt>付款时间</dt><dd>{formatDate(payment.paid_at)}</dd></div>}{payment.closed_at && <div><dt>关闭时间</dt><dd>{formatDate(payment.closed_at)}</dd></div>}</dl>
         {transaction.state.error && !transaction.state.pending && <p className="field-error" role="alert">{transaction.state.error}</p>}
-        {payment.status === 'PENDING' && <><button className="button button--primary" disabled aria-describedby="payment-step-note">模拟付款</button><p id="payment-step-note" className="workflow-muted">模拟付款暂未开放。</p>
+        {payment.status === 'PENDING' && <><button className="button button--primary" disabled={locked || expired || !payment.allowed_actions.includes('SIMULATE_PAY')} onClick={() => void pay()} aria-describedby="payment-step-note">{transaction.state.busy && transaction.state.pending?.kind === 'pay' ? '正在模拟付款…' : '模拟付款'}</button><p id="payment-step-note" className="workflow-muted">仅用于演示，不涉及真实资金。成功后全部关联订单进入待发货。</p>
           {payment.allowed_actions.includes('CANCEL') && <button className="button" disabled={locked || expired} onClick={() => { transaction.store.clearError(); setConfirm(true); }}>取消本次结算</button>}
         </>}
         <Link className="button" to={orderList}>查看我的订单</Link>

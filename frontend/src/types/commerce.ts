@@ -36,6 +36,7 @@ export interface OrderPage { items: BuyerOrder[]; page: number; page_size: numbe
 export interface CommerceGateway {
   preview(request: CheckoutRequest): Promise<CheckoutPreview>;
   submit(token: string, key: string): Promise<PaymentGroup>;
+  pay(paymentId: string, key: string): Promise<PaymentGroup>;
   cancel(paymentId: string, key: string): Promise<PaymentGroup>;
   orders(query: OrderQuery): Promise<OrderPage>;
   order(id: string): Promise<BuyerOrder>;

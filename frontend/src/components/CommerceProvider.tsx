@@ -17,8 +17,8 @@ function TransactionRecovery() {
   if (!state.pending) return null;
   return <aside className="cart-undo-notice" aria-label="交易操作提示">
     <p role={state.busy ? 'status' : 'alert'}>{state.busy ? '正在处理交易操作…' : state.error}</p>
-    {!state.busy && <><p>请先确认原操作结果，再提交或取消其他订单。</p><button className="button" onClick={() => {
+    {!state.busy && <><p>请先确认原操作结果，再进行其他交易操作。</p><button className="button" onClick={() => {
       void store.retry().then(payment => { void cart.store.load().catch(() => undefined); navigate(paymentPath(payment.payment_group_id)); }).catch(() => undefined);
-    }}>{state.pending.kind === 'submit' ? '确认上次提交结果' : '确认上次取消结果'}</button></>}
+    }}>{state.pending.kind === 'submit' ? '确认上次提交结果' : state.pending.kind === 'pay' ? '确认上次付款结果' : '确认上次取消结果'}</button></>}
   </aside>;
 }

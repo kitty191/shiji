@@ -7,7 +7,7 @@ import { completeSku, inStock } from '../lib/product.ts';
 import { parseCartSnapshot } from './cart.ts';
 import type { PersistedCart } from './cart.ts';
 
-interface Receipt { action: 'submit' | 'cancel'; target: string; payment_group_id: string }
+interface Receipt { action: 'submit' | 'cancel' | 'pay'; target: string; payment_group_id: string }
 interface Ledger { version: 1; orders: BuyerOrder[]; payments: PaymentGroup[]; bindings: Record<string, string>; receipts: Record<string, Receipt> }
 interface Options {
   catalog: () => readonly ProductView[]; addresses: () => Address[]; load: () => string | null; save: (value: string) => void;
@@ -45,11 +45,14 @@ function readLedger(value: unknown): Ledger {
         !Array.isArray(payment.shop_orders) || !Array.isArray(payment.allowed_actions)) throw Error();
       const orders = ledger.orders.filter(o => o.payment_group_id === payment.payment_group_id);
       if (!orders.length || orders.length !== payment.shop_orders.length || payment.total_amount !== orders.reduce((n, o) => n + o.total_amount, 0) ||
-        orders.some(o => !payment.shop_orders.some(link => link.order_id === o.order_id) || o.payment_status !== payment.status)) throw Error();
+        orders.some(o => !payment.shop_orders.some(link => link.order_id === o.order_id && link.status === o.status && link.total_amount === o.total_amount) || o.payment_status !== payment.status)) throw Error();
+      if (payment.status === 'PENDING' && (payment.paid_at !== null || payment.closed_at !== null || orders.some(o => o.status !== 'PENDING_PAYMENT' || o.paid_at !== null || o.closed_at !== null))) throw Error();
+      if (payment.status === 'PAID' && (!date(payment.paid_at) || payment.closed_at !== null || orders.some(o => !['PENDING_SHIPMENT', 'PENDING_RECEIPT', 'COMPLETED'].includes(o.status) || o.paid_at !== payment.paid_at || o.closed_at !== null))) throw Error();
+      if (payment.status === 'CLOSED' && (!date(payment.closed_at) || payment.paid_at !== null || orders.some(o => o.status !== 'CLOSED' || o.closed_at !== payment.closed_at || o.paid_at !== null))) throw Error();
     }
     if (ledger.orders.some(o => !ledger.payments.some(p => p.payment_group_id === o.payment_group_id))) throw Error();
     if (Object.values(ledger.bindings).some(id => !ledger.payments.some(p => p.payment_group_id === id)) ||
-      Object.values(ledger.receipts).some(r => !r || !['submit', 'cancel'].includes(r.action) || !text(r.target) || !ledger.payments.some(p => p.payment_group_id === r.payment_group_id))) throw Error();
+      Object.values(ledger.receipts).some(r => !r || !['submit', 'cancel', 'pay'].includes(r.action) || !text(r.target) || !ledger.payments.some(p => p.payment_group_id === r.payment_group_id))) throw Error();
     return structuredClone(ledger);
   } catch { throw new CommerceError('SERVICE_UNAVAILABLE', '暂时无法读取订单，已有订单与购物车未被覆盖。'); }
 }
@@ -68,6 +71,7 @@ export class MockCommerce {
     const ledger = readLedger(cart.checkout), now = this.time();
     for (const payment of ledger.payments) {
       if (payment.status === 'PENDING' && Date.parse(payment.expires_at) <= now) this.close(ledger, payment, 'TIMEOUT', payment.expires_at);
+      if (payment.status === 'PENDING') payment.allowed_actions = ['SIMULATE_PAY', 'CANCEL'];
       payment.checked_at = new Date(now).toISOString();
     }
     return { cart, ledger };
@@ -85,7 +89,7 @@ export class MockCommerce {
   }
   private catalogFor(ledger: Ledger): ProductView[] {
     const reserved = new Map<string, number>();
-    for (const order of ledger.orders.filter(o => o.payment_status === 'PENDING')) for (const line of order.items) reserved.set(line.sku_id, (reserved.get(line.sku_id) ?? 0) + line.quantity);
+    for (const order of ledger.orders.filter(o => o.payment_status === 'PENDING' || o.payment_status === 'PAID')) for (const line of order.items) reserved.set(line.sku_id, (reserved.get(line.sku_id) ?? 0) + line.quantity);
     return this.options.catalog().map(original => {
       const product = structuredClone(original);
       if (product.view_status === 'OFF_SALE') return product;
@@ -170,7 +174,7 @@ export class MockCommerce {
     });
     const payment: PaymentGroup = { payment_group_id: paymentId, payment_no: `PAY${paymentId.slice(8)}`, status: 'PENDING', total_amount: current.total_amount,
       currency: 'CNY', expires_at: expires, paid_at: null, closed_at: null, close_reason: null, created_at: timestamp, checked_at: timestamp,
-      allowed_actions: ['CANCEL'], shop_orders: orders.map(({ order_id, order_no, store_id, store_name, status, goods_amount, shipping_amount, total_amount }) =>
+      allowed_actions: ['SIMULATE_PAY', 'CANCEL'], shop_orders: orders.map(({ order_id, order_no, store_id, store_name, status, goods_amount, shipping_amount, total_amount }) =>
         ({ order_id, order_no, store_id, store_name, status, goods_amount, shipping_amount, total_amount })) };
     ledger.orders.unshift(...orders); ledger.payments.unshift(payment);
     ledger.bindings = { ...ledger.bindings, [token]: paymentId };
@@ -178,6 +182,28 @@ export class MockCommerce {
     if (record.request.source === 'CART') { const ids = record.request.cart_item_ids; cart.items = cart.items.filter(item => !ids.includes(item.item_id)); }
     this.write(cart, ledger);
     return structuredClone(payment);
+  }
+  pay(paymentId: string, key: string): PaymentGroup {
+    const { cart, ledger } = this.read(), replay = this.receipt(ledger, key, 'pay', paymentId);
+    if (replay) return replay;
+    const payment = ledger.payments.find(p => p.payment_group_id === paymentId);
+    if (!payment) throw new CommerceError('NOT_FOUND', '没有找到这次结算。');
+    if (payment.status === 'CLOSED') throw new CommerceError(payment.close_reason === 'TIMEOUT' ? 'PAYMENT_EXPIRED' : 'INVALID_STATE', '本次结算已关闭，不能付款，请核对最新状态。');
+    // A fresh key after a reload must not charge or consume stock again.
+    if (payment.status === 'PAID') {
+      ledger.receipts = { ...ledger.receipts, [key]: { action: 'pay', target: paymentId, payment_group_id: paymentId } };
+      this.write(cart, ledger); return structuredClone(payment);
+    }
+    const now = this.time();
+    if (Date.parse(payment.expires_at) <= now) throw new CommerceError('PAYMENT_EXPIRED', '付款已超时，请核对最新支付单状态。');
+    const timestamp = new Date(now).toISOString();
+    payment.status = 'PAID'; payment.paid_at = timestamp; payment.allowed_actions = [];
+    for (const order of ledger.orders.filter(o => o.payment_group_id === paymentId)) {
+      order.status = 'PENDING_SHIPMENT'; order.payment_status = 'PAID'; order.paid_at = timestamp; order.allowed_actions = [];
+    }
+    payment.shop_orders = payment.shop_orders.map(order => ({ ...order, status: 'PENDING_SHIPMENT' }));
+    ledger.receipts = { ...ledger.receipts, [key]: { action: 'pay', target: paymentId, payment_group_id: paymentId } };
+    this.write(cart, ledger); return structuredClone(payment);
   }
   cancel(paymentId: string, key: string): PaymentGroup {
     const { cart, ledger } = this.read(), replay = this.receipt(ledger, key, 'cancel', paymentId);

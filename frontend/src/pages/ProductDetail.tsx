@@ -89,7 +89,7 @@ function ProductContent({ product }: { product: Product }) {
         <div className="detail-actions"><button className="button" disabled={!available || !cartAvailable || cart.state.mutating || cart.state.retryPending} aria-describedby="purchase-note" onClick={() => {
           if (sku) void cart.store.add({ sku_id: sku.sku_id, quantity }).then(cart.show).catch(cart.show);
         }}>{cart.state.adding ? '正在加入…' : '加入购物车'}</button><button className="button button--primary" disabled={!available || !commerceAvailable || transaction.state.busy || !!transaction.state.pending || cart.state.mutating || cart.state.retryPending} aria-describedby="purchase-note" onClick={() => { if (sku) navigate(checkoutPath({ source: 'DIRECT', items: [{ sku_id: sku.sku_id, quantity }] }, `${location.pathname}${location.search}`)); }}>立即购买</button></div>
-        <p className="detail-preview-note" id="purchase-note">{cartAvailable ? '可加入模拟购物车或立即购买；提交后进入待付款，模拟付款另批开放。' : '当前仅接入商品查询，购物车与购买暂不可用。'}</p>
+        <p className="detail-preview-note" id="purchase-note">{cartAvailable ? '可加入模拟购物车或立即购买，提交订单后可在付款页完成模拟付款。' : '当前仅接入商品查询，购物车与购买暂不可用。'}</p>
       </section>
     </div>
     <section className="detail-attributes" aria-label="商品参数"><h2>商品资料</h2><dl>{product.attributes.map((attribute, index) => <div key={`${attribute.name}-${index}`}><dt>{attribute.name}</dt><dd>{attribute.value}</dd></div>)}</dl></section>
