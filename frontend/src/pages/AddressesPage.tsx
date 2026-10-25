@@ -196,7 +196,7 @@ export function AddressesPage() {
             <p className="address-demo-note">首条收货地址会自动设为默认；已有地址时，勾选才会切换默认地址。</p></>}
           <div className="address-actions"><button className="button button--primary" type="submit" disabled={locked || state.status !== 'ready' || !!editProblem || editing && !dirty}>{state.saving ? '正在保存…' : '保存地址'}</button><button className="button" type="button" disabled={state.saving} onClick={() => dirty || state.pending ? setCancelRequested(true) : closeForm()}>取消</button></div>
         </form>}
-        {state.status === 'ready' && !state.items.length && !session && <div className="empty-state"><h2>还没有收货地址</h2><p>点击新增地址，保存第一条虚构演示地址。</p></div>}
+        {state.status === 'ready' && !locked && !state.items.length && !session && <div className="empty-state"><h2>还没有收货地址</h2><p>点击新增地址，保存第一条虚构演示地址。</p></div>}
         {!!state.items.length && <div className="address-grid">{state.items.map(address => <article className="address-card" key={address.address_id} data-address-id={address.address_id}>
           <div><h2 tabIndex={-1} ref={element => { if (element) addressHeadings.current.set(address.address_id, element); else addressHeadings.current.delete(address.address_id); }}>{address.recipient_name}</h2>{address.is_default && <span className="address-default-badge">默认地址</span>}</div>
           <p>{address.recipient_phone}</p><p>{address.province} {address.city} {address.district}</p><p>{address.detail_address}</p>

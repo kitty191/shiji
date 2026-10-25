@@ -128,3 +128,39 @@ test('NOT_FOUND releases retry intent and the next retry only refreshes the curr
   assert.equal(store.getSnapshot().pending, null); assert.equal(store.getSnapshot().failedOperation, null);
   await store.retry(); assert.equal(writes, 1); assert.equal(store.getSnapshot().items.length, 2);
 });
+
+test('deleting the last address retains the confirmed list until the replacement list read completes', async () => {
+  const f = fixture(1); let reads = 0, releaseRead, markReadStarted;
+  const readGate = new Promise(resolve => { releaseRead = resolve; });
+  const readStarted = new Promise(resolve => { markReadStarted = resolve; });
+  const store = new AddressStore({ ...f.gateway, read: async () => { if (++reads > 1) { markReadStarted(); await readGate; } return f.engine.read(); } }, f.key);
+  await store.load(); const observed = []; store.subscribe(() => observed.push(store.getSnapshot()));
+  const deletion = store.remove(f.rows[0].address_id); await readStarted;
+  assert.deepEqual(f.engine.read(), []); assert.equal(store.getSnapshot().items.length, 1);
+  assert.equal(store.getSnapshot().saving, true); assert.equal(store.getSnapshot().pending.kind, 'delete');
+  assert.equal(observed.some(state => state.items.length === 0), false);
+  releaseRead(); await deletion;
+  assert.deepEqual(store.getSnapshot().items, []); assert.equal(store.getSnapshot().pending, null); assert.equal(store.getSnapshot().saving, false);
+  assert.equal(store.getSnapshot().status, 'ready');
+});
+
+test('a failed read after deleting the last address cannot masquerade as an empty list or hide a later new address', async () => {
+  const f = fixture(1); let failRead = false, writes = 0;
+  const store = new AddressStore({ ...f.gateway, read: async () => { if (failRead) throw Error('list unavailable'); return f.engine.read(); }, remove: async (id, key) => { writes++; return f.engine.remove(id, key); } }, f.key);
+  await store.load(); failRead = true; await assert.rejects(store.remove(f.rows[0].address_id));
+  assert.equal(store.getSnapshot().items.length, 1); assert.equal(store.getSnapshot().writeConfirmed, true);
+  assert.equal(store.getSnapshot().pending.kind, 'delete'); assert.match(store.getSnapshot().error, /列表暂未更新/);
+  const later = f.engine.create(sample('后来新增'), 'later'); failRead = false; await store.retry();
+  assert.equal(writes, 1); assert.deepEqual(store.getSnapshot().items.map(row => row.address_id), [later.address_id]);
+  assert.equal(store.getSnapshot().items[0].is_default, true); assert.equal(store.getSnapshot().pending, null);
+});
+
+test('unknown deletion of the last address confirms the same operation before publishing an empty list', async () => {
+  const f = fixture(1); let lost = true; const calls = [];
+  const store = new AddressStore({ ...f.gateway, remove: async (id, key) => { calls.push([id, key]); const result = f.engine.remove(id, key); if (lost) { lost = false; throw Error('lost'); } return result; } }, f.key);
+  await store.load(); const saves = f.saves(); await assert.rejects(store.remove(f.rows[0].address_id));
+  assert.equal(store.getSnapshot().items.length, 1); assert.equal(store.getSnapshot().pending.kind, 'delete');
+  await store.retry(); assert.deepEqual(calls, [calls[0], calls[0]]); assert.equal(f.saves(), saves + 1);
+  assert.deepEqual(store.getSnapshot().items, []); assert.equal(store.getSnapshot().error, null);
+  assert.equal(store.getSnapshot().pending, null); assert.equal(store.getSnapshot().saving, false);
+});
