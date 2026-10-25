@@ -22,7 +22,7 @@ function pendingSession(operation: AddressOperation | null): FormSession | null 
     : { kind: 'update', address_id: operation.address_id, edit_token: operation.request.edit_token, initial };
 }
 
-function LeaveAddressConfirm({ saving, editing, onStay, onLeave }: { saving: boolean; editing: boolean; onStay: () => void; onLeave: () => void }) {
+function LeaveAddressConfirm({ saving, editing, pending, writeConfirmed, onStay, onLeave }: { saving: boolean; editing: boolean; pending: boolean; writeConfirmed: boolean; onStay: () => void; onLeave: () => void }) {
   const dialog = useRef<HTMLDialogElement>(null);
   useEffect(() => {
     const previous = document.activeElement, element = dialog.current;
@@ -30,9 +30,9 @@ function LeaveAddressConfirm({ saving, editing, onStay, onLeave }: { saving: boo
     return () => { element?.close(); if (previous instanceof HTMLElement && previous.isConnected) previous.focus({ preventScroll: true }); };
   }, []);
   return <dialog ref={dialog} className="cart-delete-dialog address-leave-dialog" aria-labelledby="address-leave-title" onCancel={onStay}>
-    <h2 id="address-leave-title">{saving ? '地址正在保存' : editing ? '离开地址编辑？' : '离开新增地址？'}</h2>
-    <p>{saving ? '请等待本次保存完成。' : '尚未保存的输入将被丢弃。结果待确认的保存请求仍会保留，可返回地址页继续确认。'}</p>
-    <div><button className="button" autoFocus onClick={onStay}>{saving ? '继续等待' : '继续填写'}</button><button className="button button--primary" disabled={saving} onClick={onLeave}>确认离开</button></div>
+    <h2 id="address-leave-title">{saving ? '地址正在保存' : pending ? writeConfirmed ? '离开待刷新列表？' : '离开待确认操作？' : editing ? '离开地址编辑？' : '离开新增地址？'}</h2>
+    <p>{saving ? '请等待本次操作完成。' : pending ? `${writeConfirmed ? '操作已保存，列表尚未更新。' : '上次操作结果尚未确认。'}站内离开后可返回地址页继续处理；刷新或关闭页面不保留本次操作标记。` : '尚未保存的输入将被丢弃，确定离开吗？'}</p>
+    <div><button className="button" autoFocus onClick={onStay}>{saving ? '继续等待' : pending ? writeConfirmed ? '继续读取' : '继续确认' : '继续填写'}</button><button className="button button--primary" disabled={saving} onClick={onLeave}>确认离开</button></div>
   </dialog>;
 }
 
@@ -50,10 +50,11 @@ export function AddressesPage() {
   const firstInput = useRef<HTMLInputElement>(null), addButton = useRef<HTMLButtonElement>(null);
   const returnFocus = useRef<HTMLElement | null>(null);
   const addressHeadings = useRef(new Map<string, HTMLHeadingElement>());
+  const formGeneration = useRef(0);
   const editing = session?.kind === 'update';
   const dirty = !!session && (addressFields.some(field => draft[field.name] !== session.initial[field.name]) ||
     session.kind === 'create' && !!draft.is_default !== !!session.initial.is_default);
-  const needsGuard = dirty || state.saving;
+  const needsGuard = dirty || state.saving || !!state.pending;
   const blocker = useBlocker(({ currentLocation, nextLocation }) => needsGuard &&
     `${currentLocation.pathname}${currentLocation.search}` !== `${nextLocation.pathname}${nextLocation.search}`);
   useBeforeUnload(useCallback((event: BeforeUnloadEvent) => {
@@ -63,8 +64,11 @@ export function AddressesPage() {
     if (!store.getSnapshot().pending) void store.load().catch(() => undefined);
   }, [store]);
   useEffect(() => { if (session) firstInput.current?.focus(); }, [session]);
+  useEffect(() => () => { formGeneration.current++; }, []);
   useEffect(() => { if (blocker.state === 'blocked' && !needsGuard) blocker.proceed(); }, [blocker, needsGuard]);
-  function closeForm() {
+  function closeForm(saved = false) {
+    formGeneration.current++;
+    if (!saved) store.clearFeedback();
     setSession(null); setDraft(emptyAddress()); setErrors({}); setEditProblem(null); setCancelRequested(false);
     requestAnimationFrame(() => {
       const target = returnFocus.current?.isConnected ? returnFocus.current : addButton.current;
@@ -72,6 +76,8 @@ export function AddressesPage() {
     });
   }
   function edit(address: Address, trigger: HTMLElement) {
+    formGeneration.current++;
+    store.clearFeedback();
     const initial = normalizeAddress(address);
     returnFocus.current = trigger;
     setSession({ kind: 'update', address_id: address.address_id, edit_token: address.edit_token, initial });
@@ -79,14 +85,18 @@ export function AddressesPage() {
   }
   async function reloadOriginal() {
     if (session?.kind !== 'update') return;
+    const generation = formGeneration.current;
     try {
       await store.load();
+      if (generation !== formGeneration.current) return;
       const address = store.getSnapshot().items.find(item => item.address_id === session.address_id);
       if (!address) { setEditProblem('这条地址已不存在，请取消编辑并查看最新列表。'); return; }
       const initial = normalizeAddress(address);
       setSession({ ...session, edit_token: address.edit_token, initial });
       setDraft({ ...initial }); setErrors({}); setEditProblem(null);
-    } catch { /* Keep the old input and version until a read succeeds. */ }
+    } catch (error) {
+      if (generation === formGeneration.current) setEditProblem(error instanceof Error ? error.message : '重新读取失败，请稍后重试；当前输入仍保留。');
+    }
   }
   function update(name: AddressField, value: string) {
     setDraft(previous => ({ ...previous, [name]: value }));
@@ -94,13 +104,16 @@ export function AddressesPage() {
   }
   async function save(event: FormEvent) {
     event.preventDefault();
-    if (!session || editProblem) return;
+    await saveDraft();
+  }
+  async function saveDraft() {
+    if (!session || editProblem || store.getSnapshot().saving || store.getSnapshot().pending || store.getSnapshot().status !== 'ready') return;
     try {
       const request = normalizeAddress(draft);
       setErrors({});
       if (session.kind === 'update') await store.update(session.address_id, addressEditRequest(request, session.edit_token));
       else await store.create(request);
-      closeForm();
+      closeForm(true);
     } catch (error) {
       if (error instanceof AddressError && Object.keys(error.fields).length) {
         setErrors(error.fields);
@@ -117,10 +130,13 @@ export function AddressesPage() {
     try { await store.setDefault(addressId); focusAddress(addressId); } catch { /* Store exposes the error and recovery action. */ }
   }
   async function retry() {
+    // A rejected write may be corrected in the form; retry the visible draft.
+    if (!state.pending && state.failedOperation && state.failedOperation.kind !== 'set-default' && session) { await saveDraft(); return; }
     try {
       await store.retry();
       if (state.pending?.kind === 'set-default') focusAddress(state.pending.address_id);
-      else if (session && state.pending) closeForm();
+      else if (state.failedOperation?.kind === 'set-default') focusAddress(state.failedOperation.address_id);
+      else if (session && state.pending) closeForm(true);
     } catch (error) {
       if (editing && error instanceof AddressError && ['EDIT_CONFLICT', 'NOT_FOUND'].includes(error.code)) setEditProblem(error.message);
     }
@@ -134,14 +150,15 @@ export function AddressesPage() {
       <nav className="detail-breadcrumb" aria-label="地址导航"><Link to={returnPath} state={{ restoreCatalog: true }}>‹ 返回商城</Link><span>收货地址</span></nav>
       <div className="cart-page-heading"><div><h1>收货地址</h1><p>保存常用地址，下次收货更方便。</p></div>
         {addressesAvailable && !session && <button ref={addButton} className="button button--primary" disabled={busy || state.status !== 'ready' || !!state.pending} onClick={event => {
+          formGeneration.current++; store.clearFeedback();
           returnFocus.current = event.currentTarget;
           const initial = emptyAddress(); setDraft({ ...initial }); setErrors({}); setEditProblem(null); setSession({ kind: 'create', initial });
         }}>新增地址</button>}
       </div>
       <p className="address-demo-note">当前为本机演示，请填写虚构信息，不会发起实际配送。</p>
       {state.notice && <p className="cart-notice" role="status">{state.notice}</p>}
-      {state.error && !editProblem && <div className="cart-error" role="alert"><p>{state.error}</p><button className="button" disabled={busy} onClick={() => void retry()}>{state.pending ? state.pending.kind === 'set-default' ? '确认上次默认设置结果' : state.pending.kind === 'update' ? '确认上次编辑结果' : '确认上次新增结果' : '重新加载地址'}</button></div>}
-      {state.pending && !state.saving && <p className="address-demo-note">{state.pending.kind === 'set-default' ? '上次默认设置结果尚待确认，暂不能新增、编辑或再次切换默认地址。' : '上次保存结果尚待确认，暂不能再次保存或更改本次输入。'}</p>}
+      {state.error && !editProblem && <div className="cart-error" role="alert"><p>{state.error}</p><button className="button" disabled={busy} onClick={() => void retry()}>{state.writeConfirmed ? '重新读取地址列表' : state.pending ? state.pending.kind === 'set-default' ? '确认上次默认设置结果' : state.pending.kind === 'update' ? '确认上次编辑结果' : '确认上次新增结果' : state.failedOperation ? state.failedOperation.kind === 'set-default' ? '重试默认设置' : '重试保存地址' : '重新加载地址'}</button></div>}
+      {state.pending && !state.saving && <p className="address-demo-note">{state.writeConfirmed ? '操作已保存，请重新读取地址列表后继续。' : state.pending.kind === 'set-default' ? '上次默认设置结果尚待确认，暂不能新增、编辑或再次切换默认地址。' : '上次保存结果尚待确认，暂不能再次保存或更改本次输入。'}</p>}
       <section aria-label="地址簿" aria-busy={busy}>
         {state.status === 'loading' && <p className="cart-loading-copy" role="status">正在加载地址…</p>}
         {session && <form className="address-form" aria-label={editing ? '编辑收货地址' : '新增收货地址'} noValidate onSubmit={save}>
@@ -157,7 +174,7 @@ export function AddressesPage() {
           </div>)}</div>
           {!editing && <><label className="address-default-check"><input type="checkbox" checked={draft.is_default === true} disabled={locked} onChange={event => setDraft(previous => ({ ...previous, is_default: event.target.checked }))} />设为默认地址</label>
             <p className="address-demo-note">首条收货地址会自动设为默认；已有地址时，勾选才会切换默认地址。</p></>}
-          <div className="address-actions"><button className="button button--primary" type="submit" disabled={locked || state.status !== 'ready' || !!editProblem || editing && !dirty}>{state.saving ? '正在保存…' : '保存地址'}</button><button className="button" type="button" disabled={state.saving} onClick={() => dirty ? setCancelRequested(true) : closeForm()}>取消</button></div>
+          <div className="address-actions"><button className="button button--primary" type="submit" disabled={locked || state.status !== 'ready' || !!editProblem || editing && !dirty}>{state.saving ? '正在保存…' : '保存地址'}</button><button className="button" type="button" disabled={state.saving} onClick={() => dirty || state.pending ? setCancelRequested(true) : closeForm()}>取消</button></div>
         </form>}
         {state.status === 'ready' && !state.items.length && !session && <div className="empty-state"><h2>还没有收货地址</h2><p>点击新增地址，保存第一条虚构演示地址。</p></div>}
         {!!state.items.length && <div className="address-grid">{state.items.map(address => <article className="address-card" key={address.address_id} data-address-id={address.address_id}>
@@ -170,7 +187,7 @@ export function AddressesPage() {
         </article>)}</div>}
       </section>
     </main>
-    {(cancelRequested || blocker.state === 'blocked') && <LeaveAddressConfirm saving={state.saving} editing={editing}
+    {(cancelRequested || blocker.state === 'blocked') && <LeaveAddressConfirm saving={state.saving} editing={editing} pending={!!state.pending} writeConfirmed={state.writeConfirmed}
       onStay={() => { setCancelRequested(false); if (blocker.state === 'blocked') blocker.reset(); }}
       onLeave={() => { if (blocker.state === 'blocked') blocker.proceed(); else closeForm(); }} />}
     <FloatingTools collapsed={collapsed} onCollapse={setCollapsed} />

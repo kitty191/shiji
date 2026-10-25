@@ -5,6 +5,7 @@ interface Attempt { operation: AddressOperation; signature: string; key: string;
 interface AddressState {
   items: Address[]; status: 'idle' | 'loading' | 'ready' | 'error'; saving: boolean;
   error: string | null; notice: string | null; pending: AddressOperation | null;
+  failedOperation: AddressOperation | null; writeConfirmed: boolean;
 }
 const message = (error: unknown) => error instanceof Error ? error.message : '操作结果暂未确认，请重试。';
 
@@ -12,7 +13,7 @@ export class AddressStore {
   private gateway: AddressGateway;
   private key: () => string;
   private listeners = new Set<() => void>();
-  private state: AddressState = { items: [], status: 'idle', saving: false, error: null, notice: null, pending: null };
+  private state: AddressState = { items: [], status: 'idle', saving: false, error: null, notice: null, pending: null, failedOperation: null, writeConfirmed: false };
   private loading: Promise<void> | null = null;
   private flight: Promise<void> | null = null;
   private attempt: Attempt | null = null;
@@ -20,11 +21,14 @@ export class AddressStore {
   getSnapshot = (): AddressState => this.state;
   subscribe = (listener: () => void): (() => void) => { this.listeners.add(listener); return () => this.listeners.delete(listener); };
   private set(patch: Partial<AddressState>): void { this.state = { ...this.state, ...patch }; this.listeners.forEach(listener => listener()); }
+  clearFeedback = (): void => {
+    if (!this.attempt && !this.flight && !this.loading) this.set({ error: this.state.status === 'error' ? this.state.error : null, notice: null, failedOperation: null });
+  };
   load = (): Promise<void> => {
     if (this.flight) return this.flight;
     if (this.attempt) return Promise.reject(new AddressError('REQUEST_IN_PROGRESS', '请先确认上一次地址保存的结果。'));
     if (this.loading) return this.loading;
-    this.set({ status: 'loading', error: null });
+    this.set({ status: 'loading', error: null, notice: null, failedOperation: null });
     this.loading = this.gateway.read().then(items => this.set({ items, status: 'ready' }))
       .catch(error => { this.set({ status: 'error', error: message(error) }); throw error; }).finally(() => { this.loading = null; });
     return this.loading;
@@ -53,7 +57,7 @@ export class AddressStore {
       this.attempt = { operation, signature, key: this.key() };
     }
     const attempt = this.attempt;
-    this.set({ saving: true, error: null, notice: null, pending: attempt.operation });
+    this.set({ saving: true, error: null, notice: null, pending: attempt.operation, failedOperation: null, writeConfirmed: !!attempt.result });
     this.flight = (async () => {
       await Promise.resolve();
       try {
@@ -63,15 +67,17 @@ export class AddressStore {
           : await this.gateway.setDefault(operation.address_id, attempt.key);
         const items = await this.gateway.read();
         this.attempt = null;
-        this.set({ items, status: 'ready', error: null, pending: null, notice: operation.kind === 'create' ? '收货地址已保存。' : operation.kind === 'update' ? '收货地址已更新。' : '默认设置已确认，已显示最新地址列表。' });
+        this.set({ items, status: 'ready', error: null, pending: null, writeConfirmed: false, notice: operation.kind === 'create' ? '收货地址已保存。' : operation.kind === 'update' ? '收货地址已更新。' : '默认设置已确认，已显示最新地址列表。' });
       } catch (error) {
         const pending = !!attempt.result || !(error instanceof AddressError) || error.retryable;
         if (!pending) this.attempt = null;
-        this.set({ pending: pending ? attempt.operation : null, error: attempt.result ? operation.kind === 'set-default' ? '默认设置已保存，列表暂未更新，请重试读取。' : '地址已保存，列表暂未更新，请重试读取。' : message(error) });
+        const failedOperation = !pending && error instanceof AddressError && error.code === 'SERVICE_UNAVAILABLE' ? attempt.operation : null;
+        this.set({ pending: pending ? attempt.operation : null, failedOperation, writeConfirmed: !!attempt.result, error: attempt.result ? operation.kind === 'set-default' ? '默认设置已保存，列表暂未更新，请重试读取。' : '地址已保存，列表暂未更新，请重试读取。' : message(error) });
         throw error;
       } finally { this.flight = null; this.set({ saving: false }); }
     })();
     return this.flight;
   }
-  retry = (): Promise<void> => this.attempt ? this.begin(this.attempt.operation) : this.load();
+  retry = (): Promise<void> => this.attempt ? this.begin(this.attempt.operation)
+    : this.state.failedOperation ? this.begin(this.state.failedOperation) : this.load();
 }
