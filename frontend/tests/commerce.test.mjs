@@ -4,7 +4,7 @@ import { MockCommerce } from '../src/mocks/commerce.ts';
 import { MockCart } from '../src/mocks/cart.ts';
 import { MockAddresses } from '../src/mocks/address.ts';
 import { CommerceStore } from '../src/stores/commerce.ts';
-import { CommerceError, checkoutPath, readCheckoutSelection, addressReturnPath, readOrderQuery } from '../src/lib/commerce.ts';
+import { CommerceError, checkoutPath, readCheckoutSelection, addressReturnPath, readOrderQuery, paymentPath, paymentReturnPath } from '../src/lib/commerce.ts';
 import { productDetails } from '../src/mocks/product.ts';
 
 function fixture() {
@@ -161,4 +161,31 @@ test('uncertain cancellation confirms the original key without repeated stock re
   await assert.rejects(store.cancel(payment.payment_group_id)); assert.equal(store.getSnapshot().pending.kind, 'cancel');
   await store.retry(); assert.deepEqual(keys, ['cancel-original', 'cancel-original']); assert.equal(f.engine.catalog()[1].skus[0].available_stock, 8);
   assert.ok(f.engine.orders(all).items.every(o => o.status === 'CLOSED'));
+});
+
+
+test('payment page links preserve order list/detail return context and encode opaque payment IDs', () => {
+  const list = '/orders?status=PENDING_PAYMENT&order_no=SJ123&page=2';
+  const detail = `/orders/order-a?${new URLSearchParams({ return_to: list })}`;
+  const path = paymentPath('pay/a?b', detail);
+  assert.equal(path.split('?')[0], '/payments/pay%2Fa%3Fb');
+  assert.equal(new URLSearchParams(path.slice(path.indexOf('?') + 1)).get('return_to'), detail);
+  assert.equal(paymentReturnPath(list), list);
+  assert.equal(paymentPath('pay-a'), '/payments/pay-a');
+});
+
+test('payment return navigation rejects foreign, recursive payment and checkout destinations', () => {
+  for (const value of [null, 'https://example.com/orders', '//example.com/orders', '/checkout?source=CART', '/payments/pay-a', '/orders/order-a#unsafe']) assert.equal(paymentReturnPath(value), '/orders');
+  const result = paymentReturnPath('/orders/order-a?return_to=https%3A%2F%2Fexample.com&ignored=value');
+  assert.equal(result, '/orders/order-a?return_to=%2Forders');
+});
+
+test('standalone payment reads expose the complete persisted group without mutating orders, cart or reservations', () => {
+  const f = fixture(), payment = f.engine.submit(f.engine.preview(f.request).preview_token, 'submit');
+  const bytes = f.snapshot(), writes = f.writes(), view = f.engine.payment(payment.payment_group_id);
+  assert.equal(view.shop_orders.length, 2); assert.equal(view.total_amount, view.shop_orders.reduce((n, order) => n + order.total_amount, 0));
+  view.shop_orders[0].total_amount = 0; view.status = 'PAID';
+  const restored = new MockCommerce(f.options).payment(payment.payment_group_id);
+  assert.equal(restored.status, 'PENDING'); assert.equal(restored.total_amount, 24700); assert.ok(restored.shop_orders.every(o => o.total_amount > 0));
+  assert.equal(f.writes(), writes); assert.equal(f.snapshot(), bytes); assert.equal(f.engine.orders(all).total, 2); assert.equal(f.engine.catalog()[1].skus[0].available_stock, 6);
 });

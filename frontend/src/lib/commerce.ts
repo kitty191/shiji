@@ -68,4 +68,20 @@ export function ordersReturnPath(value: string | null): string {
   }
   return '/orders';
 }
+// Payment pages may return to an order list or one order, never another checkout/payment page.
+export function paymentReturnPath(value: string | null): string {
+  if (value?.startsWith('/orders/') && !value.includes('#')) {
+    const split = value.indexOf('?'), path = split < 0 ? value : value.slice(0, split);
+    if (/^\/orders\/[^/?]+$/.test(path)) {
+      const params = new URLSearchParams(split < 0 ? '' : value.slice(split + 1));
+      return `${path}?${new URLSearchParams({ return_to: ordersReturnPath(params.get('return_to')) })}`;
+    }
+  }
+  return ordersReturnPath(value);
+}
+export function paymentPath(id: string, returnTo: string | null = '/orders'): string {
+  const path = `/payments/${encodeURIComponent(id)}`, back = paymentReturnPath(returnTo);
+  return back === '/orders' ? path : `${path}?${new URLSearchParams({ return_to: back })}`;
+}
+
 export function formatDate(value: string): string { return new Date(value).toLocaleString('zh-CN', { hour12: false }); }

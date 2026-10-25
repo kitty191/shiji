@@ -5,7 +5,7 @@ import { useAddresses } from '../components/AddressProvider.tsx';
 import { useCart } from '../components/CartContext.ts';
 import { useCommerce } from '../components/CommerceContext.ts';
 import { BuyerWorkflow, TransactionLines, useClock, remainingTime } from '../components/BuyerWorkflow.tsx';
-import { CommerceError, checkoutBackPath, readCheckoutSelection } from '../lib/commerce.ts';
+import { CommerceError, checkoutBackPath, readCheckoutSelection, paymentPath } from '../lib/commerce.ts';
 import { formatMoney } from '../lib/catalog.ts';
 import { hasQuantityWork } from '../stores/cart.ts';
 import type { CheckoutPreview } from '../types/commerce.ts';
@@ -50,7 +50,7 @@ export function CheckoutPage() {
     try {
       const payment = await transaction.store.submit(quote.preview_token);
       void cart.store.load().catch(() => undefined);
-      navigate(`/orders/${encodeURIComponent(payment.shop_orders[0].order_id)}`, { replace: true });
+      navigate(paymentPath(payment.payment_group_id), { replace: true });
     } catch (error) {
       if (error instanceof CommerceError && ['PRICE_CHANGED', 'ADDRESS_CHANGED', 'CART_CHANGED', 'PREVIEW_EXPIRED', 'ITEM_NOT_PURCHASABLE', 'INSUFFICIENT_STOCK'].includes(error.code)) setInvalidated(true);
     }

@@ -1,27 +1,16 @@
 import { useEffect, useRef, useState } from 'react';
-import { Link, useParams, useSearchParams } from 'react-router-dom';
+import { Link, useLocation, useParams, useSearchParams } from 'react-router-dom';
 import { commerceAvailable, commerceGateway } from '../api/commerce.ts';
 import { BuyerWorkflow, TransactionLines, remainingTime, useClock } from '../components/BuyerWorkflow.tsx';
 import { useCommerce } from '../components/CommerceContext.ts';
 import { useCart } from '../components/CartContext.ts';
-import { CommerceError, formatDate, ordersReturnPath, orderStatuses } from '../lib/commerce.ts';
+import { CommerceError, formatDate, ordersReturnPath, orderStatuses, paymentPath } from '../lib/commerce.ts';
 import { formatMoney } from '../lib/catalog.ts';
+import { CancelPaymentConfirm } from '../components/CancelPaymentConfirm.tsx';
 import type { BuyerOrder, PaymentGroup } from '../types/commerce.ts';
 
-function CancelOrderConfirm({ payment, onClose, onConfirm }: { payment: PaymentGroup; onClose: () => void; onConfirm: () => void }) {
-  const dialog = useRef<HTMLDialogElement>(null);
-  useEffect(() => {
-    const element = dialog.current, previous = document.activeElement, overflow = document.body.style.overflow;
-    document.body.style.overflow = 'hidden'; element?.showModal();
-    return () => { element?.close(); document.body.style.overflow = overflow; if (previous instanceof HTMLElement && previous.isConnected) previous.focus({ preventScroll: true }); };
-  }, []);
-  return <dialog ref={dialog} className="cart-delete-dialog address-leave-dialog" aria-labelledby="cancel-orders-title" onCancel={event => { event.preventDefault(); onClose(); }}>
-    <h2 id="cancel-orders-title">取消本次待付款结算？</h2><p>将一起关闭以下 {payment.shop_orders.length} 笔店铺订单，释放占用的模拟库存；商品不会自动放回购物车。</p>
-    <ul className="cancel-order-list">{payment.shop_orders.map(o => <li key={o.order_id}>{o.store_name} · {o.order_no} · ¥{formatMoney(o.total_amount)}</li>)}</ul>
-    <p>整次结算金额 ¥{formatMoney(payment.total_amount)}</p><div><button className="button" autoFocus onClick={onClose}>保留订单</button><button className="button button--primary" onClick={onConfirm}>确认取消本次结算</button></div>
-  </dialog>;
-}
 export function OrderDetailPage() {
+  const location = useLocation();
   const { orderId = '' } = useParams(), [params] = useSearchParams(), backTo = ordersReturnPath(params.get('return_to'));
   const transaction = useCommerce(), cart = useCart(), now = useClock(), heading = useRef<HTMLHeadingElement>(null);
   const focusAfterReload = useRef(false);
@@ -68,11 +57,12 @@ export function OrderDetailPage() {
         <section className="workflow-panel" aria-label="订单时间与物流"><h2>订单信息</h2><dl className="order-metadata"><div><dt>创建时间</dt><dd>{formatDate(order.created_at)}</dd></div><div><dt>付款截止</dt><dd>{formatDate(order.payment_expires_at)}</dd></div>{order.closed_at && <div><dt>关闭时间</dt><dd>{formatDate(order.closed_at)}</dd></div>}<div><dt>物流信息</dt><dd>{order.shipping_carrier && order.tracking_no ? `${order.shipping_carrier} · ${order.tracking_no}` : '暂无物流信息'}</dd></div></dl></section>
       </div><aside className="workflow-panel checkout-summary" aria-label="本次结算"><h2>本次结算</h2><p className="workflow-muted">支付单 {payment.payment_no}</p><p>共 {payment.shop_orders.length} 笔店铺订单</p><strong className="checkout-total">¥{formatMoney(payment.total_amount)}</strong>
         <ul className="payment-order-links">{payment.shop_orders.map(link => <li key={link.order_id}><Link to={`/orders/${encodeURIComponent(link.order_id)}?${new URLSearchParams({ return_to: backTo })}`} aria-current={link.order_id === order.order_id ? 'page' : undefined}>{link.store_name} · ¥{formatMoney(link.total_amount)}<span>{orderStatuses[link.status]}</span></Link></li>)}</ul>
+        <Link className="button" to={paymentPath(payment.payment_group_id, `${location.pathname}${location.search}`)}>查看付款页面</Link>
         {transaction.state.error && !transaction.state.pending && <p className="field-error" role="alert">{transaction.state.error}</p>}
         {payment.status === 'PENDING' && payment.allowed_actions.includes('CANCEL') && <button className="button" disabled={locked || Date.parse(payment.expires_at) <= now} onClick={() => { transaction.store.clearError(); setConfirm(true); }}>取消本次结算</button>}
         <p className="workflow-muted">待付款仅支持取消整次结算，会关闭同一支付单下的全部店铺订单。</p>
       </aside></div>
-      {confirm && <CancelOrderConfirm payment={payment} onClose={() => setConfirm(false)} onConfirm={() => void cancel()} />}
+      {confirm && <CancelPaymentConfirm payment={payment} onClose={() => setConfirm(false)} onConfirm={() => void cancel()} />}
     </>}
   </BuyerWorkflow>;
 }
