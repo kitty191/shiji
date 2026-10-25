@@ -14,16 +14,18 @@ import { PaymentPage } from './pages/PaymentPage.tsx';
 import { CommerceProvider } from './components/CommerceProvider.tsx';
 import './styles.css';
 
-const router = createHashRouter([{ element: <AddressProvider><CartProvider><CommerceProvider><Outlet /><ScrollRestoration /></CommerceProvider></CartProvider></AddressProvider>, children: [
-  { path: '/', element: <Navigate to="/buyer" replace /> },
-  { path: '/buyer', element: <BuyerHome /> },
-  { path: '/cart', element: <CartPage /> },
-  { path: '/addresses', element: <AddressesPage /> },
-  { path: '/checkout', element: <CheckoutPage /> },
-  { path: '/payments/:paymentId', element: <PaymentPage /> },
-  { path: '/orders', element: <OrdersPage /> },
-  { path: '/orders/:orderId', element: <OrderDetailPage /> },
-  { path: '/products/:productId', element: <ProductDetail /> },
-  { path: '*', element: <main className="route-error"><h1>没有找到这个页面</h1><a href="#/buyer">返回首页</a></main> },
-] }]);
+const router = createHashRouter([{
+  element: <AddressProvider><CartProvider><CommerceProvider><Outlet /><ScrollRestoration /></CommerceProvider></CartProvider></AddressProvider>, children: [
+    { path: '/', element: <Navigate to="/buyer" replace /> },
+    { path: '/buyer', element: <BuyerHome /> },
+    { path: '/cart', element: <CartPage /> },
+    { path: '/addresses', element: <AddressesPage /> },
+    { path: '/checkout', element: <CheckoutPage /> },
+    { path: '/payments/:paymentId', element: <PaymentPage /> },
+    { path: '/orders', element: <OrdersPage /> },
+    { path: '/orders/:orderId', element: <OrderDetailPage /> },
+    { path: '/products/:productId', element: <ProductDetail /> },
+    { path: '*', element: <main className="route-error"><h1>没有找到这个页面</h1><a href="#/buyer">返回首页</a></main> },
+  ]
+}]);
 createRoot(document.getElementById('root')!).render(<StrictMode><RouterProvider router={router} /></StrictMode>);
