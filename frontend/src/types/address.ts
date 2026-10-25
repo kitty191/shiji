@@ -21,14 +21,18 @@ export interface AddressEditRequest extends Omit<AddressCreateRequest, 'is_defau
   edit_token: string;
 }
 
+export interface AddressDeleteResult { deleted: true }
+
 export type AddressOperation =
   | { kind: 'create'; request: AddressCreateRequest }
   | { kind: 'update'; address_id: string; request: AddressEditRequest }
-  | { kind: 'set-default'; address_id: string };
+  | { kind: 'set-default'; address_id: string }
+  | { kind: 'delete'; address_id: string };
 
 export interface AddressGateway {
   read(): Promise<Address[]>;
   create(request: AddressCreateRequest, key: string): Promise<Address>;
   update(addressId: string, request: AddressEditRequest, operationKey: string): Promise<Address>;
   setDefault(addressId: string, key: string): Promise<Address>;
+  remove(addressId: string, key: string): Promise<AddressDeleteResult>;
 }

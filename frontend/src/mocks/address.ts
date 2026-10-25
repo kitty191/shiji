@@ -1,4 +1,4 @@
-import type { Address, AddressCreateRequest, AddressEditRequest } from '../types/address.ts';
+import type { Address, AddressCreateRequest, AddressDeleteResult, AddressEditRequest } from '../types/address.ts';
 import { AddressError, addressEditRequest, normalizeAddress } from '../lib/address.ts';
 
 interface Options { load?: () => string | null; save?: (value: string) => void; id?: () => string; now?: () => number }
@@ -16,7 +16,7 @@ function validAddress(value: unknown): value is Address {
 // A separate fictional address book; never reads the HTML prototype's snapshot.
 export class MockAddresses {
   private items: Address[] = [];
-  private receipts = new Map<string, { fingerprint: string; result: Address }>();
+  private receipts = new Map<string, { fingerprint: string; result: Address | AddressDeleteResult }>();
   private options: Options;
   constructor(options: Options = {}) { this.options = options; }
   read(): Address[] {
@@ -40,7 +40,7 @@ export class MockAddresses {
     if (!key) throw new AddressError('INVALID_ARGUMENT', '操作标记不能为空。');
     const receipt = this.receipts.get(key);
     if (receipt) {
-      if (receipt.fingerprint !== fingerprint) throw new AddressError('IDEMPOTENCY_CONFLICT', '操作标记与新增地址不一致。');
+      if (receipt.fingerprint !== fingerprint || 'deleted' in receipt.result) throw new AddressError('IDEMPOTENCY_CONFLICT', '操作标记与新增地址不一致。');
       return structuredClone(receipt.result);
     }
     const previous = this.read(), timestamp = new Date((this.options.now ?? Date.now)()).toISOString();
@@ -61,7 +61,7 @@ export class MockAddresses {
     const fingerprint = JSON.stringify(['set-default', addressId]), receipt = this.receipts.get(key);
     // Confirm the original result without reapplying an old switch after a later one.
     if (receipt) {
-      if (receipt.fingerprint !== fingerprint) throw new AddressError('IDEMPOTENCY_CONFLICT', '操作标记与默认地址不一致。');
+      if (receipt.fingerprint !== fingerprint || 'deleted' in receipt.result) throw new AddressError('IDEMPOTENCY_CONFLICT', '操作标记与默认地址不一致。');
       return structuredClone(receipt.result);
     }
     const previous = this.read(), original = previous.find(item => item.address_id === addressId);
@@ -90,7 +90,7 @@ export class MockAddresses {
     // Local receipt recovery only; D03 has no HTTP Idempotency-Key contract.
     const receipt = this.receipts.get(operationKey);
     if (receipt) {
-      if (receipt.fingerprint !== fingerprint) throw new AddressError('IDEMPOTENCY_CONFLICT', '操作标记与编辑内容不一致。');
+      if (receipt.fingerprint !== fingerprint || 'deleted' in receipt.result) throw new AddressError('IDEMPOTENCY_CONFLICT', '操作标记与编辑内容不一致。');
       return structuredClone(receipt.result);
     }
     const previous = this.read(), original = previous.find(item => item.address_id === addressId);
@@ -105,5 +105,27 @@ export class MockAddresses {
     this.receipts.set(operationKey, { fingerprint, result: structuredClone(address) });
     while (this.receipts.size > 200) this.receipts.delete(this.receipts.keys().next().value!);
     return structuredClone(address);
+  }
+  remove(addressId: string, key: string): AddressDeleteResult {
+    if (!addressId || !key) throw new AddressError('INVALID_ARGUMENT', '地址与操作标记不能为空。');
+    const fingerprint = JSON.stringify(['delete', addressId]), receipt = this.receipts.get(key);
+    if (receipt) {
+      if (receipt.fingerprint !== fingerprint || !('deleted' in receipt.result)) throw new AddressError('IDEMPOTENCY_CONFLICT', '操作标记与删除地址不一致。');
+      return structuredClone(receipt.result);
+    }
+    const previous = this.read(), original = previous.find(item => item.address_id === addressId);
+    if (!original) throw new AddressError('NOT_FOUND', '这条地址已不存在，请重新加载地址列表。');
+    const next = previous.filter(item => item.address_id !== addressId);
+    if (original.is_default && next.length) {
+      next[0] = { ...next[0], is_default: true, updated_at: new Date((this.options.now ?? Date.now)()).toISOString(), edit_token: `mock_${crypto.randomUUID()}` };
+    }
+    // D088: deletion and default fallback are persisted as one snapshot.
+    try { this.options.save?.(JSON.stringify({ version: 1, items: next })); }
+    catch { throw new AddressError('SERVICE_UNAVAILABLE', '地址暂时无法删除，原地址仍保留，请稍后重试。'); }
+    this.items = next;
+    const result: AddressDeleteResult = { deleted: true };
+    this.receipts.set(key, { fingerprint, result });
+    while (this.receipts.size > 200) this.receipts.delete(this.receipts.keys().next().value!);
+    return structuredClone(result);
   }
 }

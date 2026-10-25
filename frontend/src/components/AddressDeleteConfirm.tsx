@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react';
 import type { Address } from '../types/address.ts';
 
-export function AddressDeleteConfirm({ address, nextDefault, onClose }: { address: Address; nextDefault?: Address; onClose: () => void }) {
+export function AddressDeleteConfirm({ address, nextDefault, onClose, onConfirm }: { address: Address; nextDefault?: Address; onClose: () => void; onConfirm: () => void }) {
   const dialog = useRef<HTMLDialogElement>(null);
   useEffect(() => {
     const element = dialog.current, previous = document.activeElement;
@@ -33,7 +33,7 @@ export function AddressDeleteConfirm({ address, nextDefault, onClose }: { addres
     <p id="address-delete-effect">{!address.is_default ? '删除后，当前默认地址保持不变。' : nextDefault
       ? `这是默认地址。删除后，将自动把剩余列表第一条（${nextDefault.recipient_name}）设为默认。`
       : '这是唯一一条收货地址。删除后，地址簿将为空，可重新新增地址。'}</p>
-    <p id="address-delete-availability" className="address-delete-availability">删除暂未开放，本次不会移除地址。</p>
-    <div><button className="button" autoFocus onClick={onClose}>取消</button><button className="button button--primary" disabled>确认删除</button></div>
+    <p id="address-delete-availability" className="address-delete-availability">删除后无法恢复，已创建订单的收货信息不受影响。</p>
+    <div><button className="button" autoFocus onClick={onClose}>取消</button><button className="button button--primary" onClick={onConfirm}>确认删除</button></div>
   </dialog>;
 }

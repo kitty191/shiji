@@ -17,7 +17,7 @@ type FormSession =
   | { kind: 'update'; address_id: string; edit_token: string; initial: AddressCreateRequest };
 
 function pendingSession(operation: AddressOperation | null): FormSession | null {
-  if (!operation || operation.kind === 'set-default') return null;
+  if (!operation || operation.kind === 'set-default' || operation.kind === 'delete') return null;
   const initial = { ...operation.request };
   return operation.kind === 'create' ? { kind: 'create', initial }
     : { kind: 'update', address_id: operation.address_id, edit_token: operation.request.edit_token, initial };
@@ -31,8 +31,8 @@ function LeaveAddressConfirm({ saving, editing, pending, writeConfirmed, onStay,
     return () => { element?.close(); if (previous instanceof HTMLElement && previous.isConnected) previous.focus({ preventScroll: true }); };
   }, []);
   return <dialog ref={dialog} className="cart-delete-dialog address-leave-dialog" aria-labelledby="address-leave-title" onCancel={onStay}>
-    <h2 id="address-leave-title">{saving ? '地址正在保存' : pending ? writeConfirmed ? '离开待刷新列表？' : '离开待确认操作？' : editing ? '离开地址编辑？' : '离开新增地址？'}</h2>
-    <p>{saving ? '请等待本次操作完成。' : pending ? `${writeConfirmed ? '操作已保存，列表尚未更新。' : '上次操作结果尚未确认。'}站内离开后可返回地址页继续处理；刷新或关闭页面不保留本次操作标记。` : '尚未保存的输入将被丢弃，确定离开吗？'}</p>
+    <h2 id="address-leave-title">{saving ? '地址操作进行中' : pending ? writeConfirmed ? '离开待刷新列表？' : '离开待确认操作？' : editing ? '离开地址编辑？' : '离开新增地址？'}</h2>
+    <p>{saving ? '请等待本次操作完成。' : pending ? `${writeConfirmed ? '操作已完成，列表尚未更新。' : '上次操作结果尚未确认。'}站内离开后可返回地址页继续处理；刷新或关闭页面不保留本次操作标记。` : '尚未保存的输入将被丢弃，确定离开吗？'}</p>
     <div><button className="button" autoFocus onClick={onStay}>{saving ? '继续等待' : pending ? writeConfirmed ? '继续读取' : '继续确认' : '继续填写'}</button><button className="button button--primary" disabled={saving} onClick={onLeave}>确认离开</button></div>
   </dialog>;
 }
@@ -50,6 +50,7 @@ export function AddressesPage() {
   const [cancelRequested, setCancelRequested] = useState(false);
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const firstInput = useRef<HTMLInputElement>(null), addButton = useRef<HTMLButtonElement>(null);
+  const recoveryButton = useRef<HTMLButtonElement>(null);
   const returnFocus = useRef<HTMLElement | null>(null);
   const addressHeadings = useRef(new Map<string, HTMLHeadingElement>());
   const formGeneration = useRef(0);
@@ -131,12 +132,25 @@ export function AddressesPage() {
   async function setDefault(addressId: string) {
     try { await store.setDefault(addressId); focusAddress(addressId); } catch { /* Store exposes the error and recovery action. */ }
   }
+  function focusAfterDelete() {
+    const first = store.getSnapshot().items[0];
+    if (first) focusAddress(first.address_id);
+    else requestAnimationFrame(() => addButton.current?.focus({ preventScroll: true }));
+  }
+  async function removeAddress(addressId: string) {
+    const current = store.getSnapshot();
+    if (current.saving || current.pending || current.status !== 'ready') return;
+    setDeleteId(null);
+    try { await store.remove(addressId); focusAfterDelete(); }
+    catch { requestAnimationFrame(() => recoveryButton.current?.focus({ preventScroll: true })); }
+  }
   async function retry() {
     // A rejected write may be corrected in the form; retry the visible draft.
-    if (!state.pending && state.failedOperation && state.failedOperation.kind !== 'set-default' && session) { await saveDraft(); return; }
+    if (!state.pending && state.failedOperation && (state.failedOperation.kind === 'create' || state.failedOperation.kind === 'update') && session) { await saveDraft(); return; }
     try {
       await store.retry();
-      if (state.pending?.kind === 'set-default') focusAddress(state.pending.address_id);
+      if (state.pending?.kind === 'delete' || state.failedOperation?.kind === 'delete') focusAfterDelete();
+      else if (state.pending?.kind === 'set-default') focusAddress(state.pending.address_id);
       else if (state.failedOperation?.kind === 'set-default') focusAddress(state.failedOperation.address_id);
       else if (session && state.pending) closeForm(true);
     } catch (error) {
@@ -146,6 +160,8 @@ export function AddressesPage() {
   const busy = state.saving || state.status === 'loading';
   const locked = busy || !!state.pending;
   const deleteTarget = state.items.find(address => address.address_id === deleteId);
+  const deleteOperation = state.pending?.kind === 'delete' ? state.pending : state.failedOperation?.kind === 'delete' ? state.failedOperation : null;
+  const deleteRecoveryAddress = state.items.find(address => address.address_id === deleteOperation?.address_id);
   return <div className="site-shell">
     <div className="preview-note"><span>收货地址预览 · {addressesAvailable ? '模拟数据' : 'API 数据'}</span><a href={prototypeUrl('addresses')} target="_blank" rel="noopener noreferrer">查看完整交互原型 ↗</a></div>
     <Header keyword={keyword} onSearch={value => navigate(`/buyer?${queryParams({ ...readQuery(new URLSearchParams()), keyword: value })}`)} />
@@ -160,9 +176,10 @@ export function AddressesPage() {
       </div>
       <p className="address-demo-note">当前为本机演示，请填写虚构信息，不会发起实际配送。</p>
       {state.notice && <p className="cart-notice" role="status">{state.notice}</p>}
-      {state.error && !editProblem && <div className="cart-error" role="alert"><p>{state.error}</p><button className="button" disabled={busy} onClick={() => void retry()}>{state.writeConfirmed ? '重新读取地址列表' : state.pending ? state.pending.kind === 'set-default' ? '确认上次默认设置结果' : state.pending.kind === 'update' ? '确认上次编辑结果' : '确认上次新增结果' : state.failedOperation ? state.failedOperation.kind === 'set-default' ? '重试默认设置' : '重试保存地址' : '重新加载地址'}</button></div>}
-      {state.pending && !state.saving && <p className="address-demo-note">{state.writeConfirmed ? '操作已保存，请重新读取地址列表后继续。' : state.pending.kind === 'set-default' ? '上次默认设置结果尚待确认，暂不能新增、编辑或再次切换默认地址。' : '上次保存结果尚待确认，暂不能再次保存或更改本次输入。'}</p>}
+      {state.error && !editProblem && <div className="cart-error" role="alert"><p>{state.error}</p>{deleteRecoveryAddress && <p>本次删除：{deleteRecoveryAddress.recipient_name} · {deleteRecoveryAddress.recipient_phone} · {deleteRecoveryAddress.detail_address}</p>}<button ref={recoveryButton} className="button" disabled={busy} onClick={() => void retry()}>{state.writeConfirmed ? '重新读取地址列表' : state.pending ? state.pending.kind === 'delete' ? '确认上次删除结果' : state.pending.kind === 'set-default' ? '确认上次默认设置结果' : state.pending.kind === 'update' ? '确认上次编辑结果' : '确认上次新增结果' : state.failedOperation ? state.failedOperation.kind === 'delete' ? '重试删除' : state.failedOperation.kind === 'set-default' ? '重试默认设置' : '重试保存地址' : '重新加载地址'}</button></div>}
+      {state.pending && !state.saving && <p className="address-demo-note">{state.writeConfirmed ? '操作已完成，请重新读取地址列表后继续。' : state.pending.kind === 'delete' ? '上次删除结果尚待确认，暂不能新增、编辑、删除或切换默认地址。' : state.pending.kind === 'set-default' ? '上次默认设置结果尚待确认，暂不能新增、编辑或再次切换默认地址。' : '上次保存结果尚待确认，暂不能再次保存或更改本次输入。'}</p>}
       <section aria-label="地址簿" aria-busy={busy}>
+        {state.saving && state.pending?.kind === 'delete' && <p className="cart-loading-copy" role="status">正在删除地址…</p>}
         {state.status === 'loading' && <p className="cart-loading-copy" role="status">正在加载地址…</p>}
         {session && <form className="address-form" aria-label={editing ? '编辑收货地址' : '新增收货地址'} noValidate onSubmit={save}>
           <h2>{editing ? '编辑地址' : '新增地址'}</h2>
@@ -194,7 +211,7 @@ export function AddressesPage() {
     {(cancelRequested || blocker.state === 'blocked') && <LeaveAddressConfirm saving={state.saving} editing={editing} pending={!!state.pending} writeConfirmed={state.writeConfirmed}
       onStay={() => { setCancelRequested(false); if (blocker.state === 'blocked') blocker.reset(); }}
       onLeave={() => { if (blocker.state === 'blocked') blocker.proceed(); else closeForm(); }} />}
-    {deleteTarget && <AddressDeleteConfirm address={deleteTarget} nextDefault={state.items.find(address => address.address_id !== deleteId)} onClose={() => setDeleteId(null)} />}
+    {deleteTarget && <AddressDeleteConfirm address={deleteTarget} nextDefault={state.items.find(address => address.address_id !== deleteId)} onClose={() => setDeleteId(null)} onConfirm={() => void removeAddress(deleteTarget.address_id)} />}
     <FloatingTools collapsed={collapsed} onCollapse={setCollapsed} />
   </div>;
 }

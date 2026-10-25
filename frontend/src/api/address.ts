@@ -14,4 +14,5 @@ export const addressGateway: AddressGateway = {
   async create(request, key) { requireMock(); await delay(); return engine.create(request, key); },
   async update(addressId, request, operationKey) { requireMock(); await delay(); return engine.update(addressId, request, operationKey); },
   async setDefault(addressId, key) { requireMock(); await delay(); return engine.setDefault(addressId, key); },
+  async remove(addressId, key) { requireMock(); await delay(); return engine.remove(addressId, key); },
 };
