@@ -45,14 +45,16 @@ test('idempotency replay does not increment and changed payload conflicts', () =
   assert.throws(() => engine.add(request(3), 'key'), error => error.code === 'IDEMPOTENCY_CONFLICT');
 });
 
-test('valid demo cart survives reload; malformed or duplicate stored rows start empty', () => {
+test('valid demo cart survives reload; malformed or duplicate snapshots cannot be read or overwritten', () => {
   const { engine, options } = fixture(); engine.add(request(2), 'a');
   assert.equal(first(new MockCart(options)).quantity, 2);
   for (const data of ['invalid json', '{"version":2,"items":[]}', JSON.stringify({ version: 1, items: [null] })]) {
-    assert.equal(new MockCart({ ...options, load: () => data }).read().item_count, 0);
+    const broken = new MockCart({ ...options, load: () => data });
+    assert.throws(() => broken.read(), error => error.code === 'SERVICE_UNAVAILABLE');
+    assert.throws(() => broken.add(request(), 'blocked'), error => error.code === 'SERVICE_UNAVAILABLE');
   }
   const persisted = JSON.parse(options.load()); persisted.items.push(persisted.items[0]);
-  assert.equal(new MockCart({ ...options, load: () => JSON.stringify(persisted) }).read().item_count, 0);
+  assert.throws(() => new MockCart({ ...options, load: () => JSON.stringify(persisted) }).read(), error => error.code === 'SERVICE_UNAVAILABLE');
 });
 
 test('live inventory, retired SKU, off-sale and unavailable products preserve original choice and navigation', () => {
