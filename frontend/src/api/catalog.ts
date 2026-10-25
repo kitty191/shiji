@@ -4,6 +4,11 @@ import { ApiError, get } from './client.ts';
 import { queryParams, selectProducts } from '../lib/catalog.ts';
 import { categories, products } from '../mocks/catalog.ts';
 import { mockProductView } from '../mocks/product.ts';
+import { mockCommerce } from '../mocks/session.ts';
+function mockCards() {
+  const current = mockCommerce.catalog();
+  return products.map(card => { const product = current.find(p => p.product_id === card.product_id); return product?.view_status === 'ON_SALE' ? { ...card, display_price: product.display_price, min_price: product.min_price, max_price: product.max_price, stock_status: product.stock_status } : card; });
+}
 
 export const usesMockData = import.meta.env.VITE_DATA_SOURCE !== 'api';
 function mockResult<T>(data: T, signal?: AbortSignal): Promise<Result<T>> {
@@ -21,13 +26,13 @@ export async function getCategories(signal?: AbortSignal): Promise<Category[]> {
 }
 export async function getProducts(query: CatalogQuery, signal?: AbortSignal): Promise<ProductPage> {
   const params = queryParams(query); params.set('page_size', String(query.page_size));
-  const result = usesMockData ? await mockResult(selectProducts(products, query), signal) : await get<ProductPage>('/products', params, signal);
+  const result = usesMockData ? await mockResult(selectProducts(mockCards(), query), signal) : await get<ProductPage>('/products', params, signal);
   if (result.code !== 'SUCCESS') throw new ApiError(result.code, result.message);
   return result.data;
 }
 
 export async function getProductView(productId: string, signal?: AbortSignal): Promise<ProductView> {
-  const result = usesMockData ? await mockResult(mockProductView(productId) ?? null, signal)
+  const result = usesMockData ? await mockResult(mockCommerce.catalog().find(p => p.product_id === productId) ?? mockProductView(productId) ?? null, signal)
     : await get<ProductView>(`/products/${encodeURIComponent(productId)}`, undefined, signal);
   if (result.code !== 'SUCCESS') throw new ApiError(result.code, result.message);
   if (!result.data) throw new ApiError('NOT_FOUND', '没有找到这件商品。');
@@ -38,7 +43,7 @@ export async function getProductView(productId: string, signal?: AbortSignal): P
 export async function getRecommendations(productId: string, signal?: AbortSignal): Promise<RecommendationResult> {
   // The off-sale mock has two same-store, same-category candidates; no service algorithm is claimed here.
   const sample: RecommendationResult = {
-    items: productId === 'stand' ? products.filter(product => product.category_id === 'category_digital' && product.stock_status === 'IN_STOCK')
+    items: usesMockData && productId === 'stand' ? mockCards().filter(product => product.category_id === 'category_digital' && product.stock_status === 'IN_STOCK')
       .toSorted((a, b) => a.display_price - b.display_price).slice(0, 4).map(({ published_order: _order, ...card }) => card) : [],
     checked_at: new Date().toISOString(),
   };

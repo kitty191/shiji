@@ -26,8 +26,8 @@ export function Header({ keyword, onSearch }: { keyword: string; onSearch: (keyw
           <span className="avatar">拾</span><span className="account-copy"><strong>拾光同学</strong><small>正在逛商城</small></span><Icon name="chevron" />
         </button>
         {open && <nav id="account-menu" className="account-menu" aria-label="账号菜单"><p>拾光同学 <small>原型演示账号</small></p>
-          {[['profile', '个人资料'], ['orders', '我的订单'], ['addresses', '收货地址'], ['opening', '商家中心']].map(([page, text]) => page === 'addresses'
-            ? <Link key={page} to={addressPath(returnPath)} onClick={() => setOpen(false)}>{text}</Link>
+          {[['profile', '个人资料'], ['orders', '我的订单'], ['addresses', '收货地址'], ['opening', '商家中心']].map(([page, text]) => (page === 'addresses' || page === 'orders')
+            ? <Link key={page} to={page === 'orders' ? '/orders' : addressPath(returnPath)} onClick={() => setOpen(false)}>{text}</Link>
             : <a key={page} href={prototypeUrl(page)} target="_blank" rel="noopener noreferrer" title={`${text}（在新标签页查看原型）`}>{text}<span aria-hidden="true">↗</span></a>)}
         </nav>}
       </div>

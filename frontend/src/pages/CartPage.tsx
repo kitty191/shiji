@@ -12,6 +12,9 @@ import { useCart } from '../components/CartContext.ts';
 import { cartCheckState, cartSelectionSummary, purchaseStatusText, selectableCartItem } from '../lib/cart.ts';
 import { formatMoney, prototypeUrl, queryParams, readQuery } from '../lib/catalog.ts';
 import { buyerReturnPath, cartPath } from '../lib/product.ts';
+import { checkoutPath } from '../lib/commerce.ts';
+import { commerceAvailable } from '../api/commerce.ts';
+import { useCommerce } from '../components/CommerceContext.ts';
 import type { CartItem } from '../types/cart.ts';
 
 function CartCheck({ items, label, disabled = false }: { items: readonly CartItem[]; label: string; disabled?: boolean }) {
@@ -25,6 +28,7 @@ function CartCheck({ items, label, disabled = false }: { items: readonly CartIte
 
 export function CartPage() {
   const { state, store } = useCart();
+  const transaction = useCommerce();
   const [params] = useSearchParams(), navigate = useNavigate();
   const returnPath = buyerReturnPath(params.get('return_to'));
   const detailReturn = cartPath(returnPath);
@@ -78,7 +82,7 @@ export function CartPage() {
         <button className="text-button cart-batch-remove" disabled={selectionDisabled || unresolvedQuantity || !selectedIds.length || selectedIds.length > 50} onClick={() => setDeleteIds(selectedIds)}>删除已选</button>
         {selectedIds.length > 50 && <p className="cart-edit-error">每次最多删除 50 项，请减少勾选。</p>}
         <div className="cart-selection-total" aria-live="polite" aria-atomic="true"><p>已选 {selection.item_count} 项 · {selection.quantity_total} 件 · {selection.store_count} 家店</p><p>商品合计 <strong>¥{formatMoney(selection.amount)}</strong></p></div>
-        <div className="cart-checkout"><button className="button button--primary" disabled aria-describedby="cart-checkout-note">去结算</button><p id="cart-checkout-note">结算暂未开放</p></div>
+        <div className="cart-checkout"><button className="button button--primary" disabled={!commerceAvailable || selectionDisabled || quantityWork || !selectedIds.length || transaction.state.busy || !!transaction.state.pending} aria-describedby="cart-checkout-note" onClick={() => navigate(checkoutPath({ source: 'CART', cart_item_ids: selectedIds }, detailReturn))}>去结算</button><p id="cart-checkout-note">{quantityWork ? '请先完成或确认数量修改' : '仅结算已选可购商品'}</p></div>
       </section>}
       <p className="catalog-note">商品、店铺与交易资料均为虚构演示数据；加购不锁定库存，实际金额以结算确认为准。</p>
     </main>

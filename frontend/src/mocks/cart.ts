@@ -3,11 +3,11 @@ import type { CartAddRequest, CartDeletion, CartItem, CartQuantityRequest, CartR
 import { CartError, emptyCart } from '../lib/cart.ts';
 import { completeSku, inStock } from '../lib/product.ts';
 
-interface StoredItem {
+export interface StoredItem {
   item_id: string; sku_id: string; quantity: number;
   snapshot: { product_id: string; name: string; store: StoreBrief; image_url: string | null; spec_values: CartItem['spec_values'] };
 }
-interface PersistedCart { version: 1; items: StoredItem[] }
+export interface PersistedCart { version: 1; items: StoredItem[]; checkout?: unknown }
 interface Options {
   catalog: () => readonly ProductView[];
   load?: () => string | null;
@@ -25,9 +25,21 @@ function validItem(value: unknown): value is StoredItem {
     snap.spec_values.every(value => typeof value?.dimension_name === 'string' && typeof value.value === 'string');
 }
 
+export function parseCartSnapshot(raw: string | null): PersistedCart {
+  try {
+    if (raw === null) return { version: 1, items: [] };
+    const data = JSON.parse(raw) as PersistedCart;
+    if (data?.version !== 1 || !Array.isArray(data.items) || !data.items.every(validItem) ||
+      new Set(data.items.map(item => item.item_id)).size !== data.items.length ||
+      new Set(data.items.map(item => item.sku_id)).size !== data.items.length) throw Error('Invalid cart snapshot');
+    return data;
+  } catch { throw new CartError('SERVICE_UNAVAILABLE', '暂时无法读取购物车，请稍后重试；已有商品未被覆盖。'); }
+}
+
 // A local demo account only. No authentication, database or stock reservation.
 export class MockCart {
   private items: StoredItem[] = [];
+  private checkout: unknown;
   private receipts = new Map<string, { fingerprint: string; result: unknown }>();
   private deletions = new Map<string, { rows: StoredItem[]; until: number; result?: CartRestoration }>();
   private options: Options;
@@ -37,13 +49,8 @@ export class MockCart {
   private readSnapshot(): void {
     if (!this.options.load) return;
     try {
-      const raw = this.options.load();
-      if (raw === null) { this.items = []; return; }
-      const data = JSON.parse(raw) as PersistedCart | null;
-      if (data?.version === 1 && Array.isArray(data.items) && data.items.every(validItem) &&
-        new Set(data.items.map(item => item.item_id)).size === data.items.length &&
-        new Set(data.items.map(item => item.sku_id)).size === data.items.length) this.items = data.items;
-      else throw Error('Invalid cart snapshot');
+      const data = parseCartSnapshot(this.options.load());
+      this.items = data.items; this.checkout = data.checkout;
     } catch { throw new CartError('SERVICE_UNAVAILABLE', '暂时无法读取购物车，请稍后重试；已有商品未被覆盖。'); }
   }
   private materialize(row: StoredItem): CartItem {
@@ -118,7 +125,7 @@ export class MockCart {
     while (this.receipts.size > 200) this.receipts.delete(this.receipts.keys().next().value!);
   }
   private commit(next: StoredItem[]): void {
-    try { this.options.save?.(JSON.stringify({ version: 1, items: next })); }
+    try { this.options.save?.(JSON.stringify({ version: 1, items: next, ...(this.checkout === undefined ? {} : { checkout: this.checkout }) })); }
     catch { throw new CartError('SERVICE_UNAVAILABLE', '暂时无法保存购物车，请稍后重试。'); }
     this.items = next;
   }

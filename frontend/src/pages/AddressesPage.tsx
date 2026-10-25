@@ -10,7 +10,7 @@ import { AddressError, addressEditRequest, addressFields, emptyAddress, normaliz
 import type { AddressField, AddressFieldErrors } from '../lib/address.ts';
 import type { Address, AddressCreateRequest, AddressOperation } from '../types/address.ts';
 import { prototypeUrl, queryParams, readQuery } from '../lib/catalog.ts';
-import { buyerReturnPath } from '../lib/product.ts';
+import { addressReturnPath } from '../lib/commerce.ts';
 
 type FormSession =
   | { kind: 'create'; initial: AddressCreateRequest }
@@ -40,7 +40,7 @@ function LeaveAddressConfirm({ saving, editing, pending, writeConfirmed, onStay,
 export function AddressesPage() {
   const { store, state } = useAddresses();
   const [params] = useSearchParams(), navigate = useNavigate();
-  const returnPath = buyerReturnPath(params.get('return_to'));
+  const returnPath = addressReturnPath(params.get('return_to'));
   const keyword = readQuery(new URLSearchParams(returnPath.split('?')[1])).keyword;
   const [collapsed, setCollapsed] = useRailState();
   const [session, setSession] = useState(() => pendingSession(state.pending));
@@ -171,7 +171,7 @@ export function AddressesPage() {
     <div className="preview-note"><span>收货地址预览 · {addressesAvailable ? '模拟数据' : 'API 数据'}</span><a href={prototypeUrl('addresses')} target="_blank" rel="noopener noreferrer">查看完整交互原型 ↗</a></div>
     <Header keyword={keyword} onSearch={value => navigate(`/buyer?${queryParams({ ...readQuery(new URLSearchParams()), keyword: value })}`)} />
     <main id="main-content" className={`catalog-page addresses-page ${collapsed ? 'rail-collapsed' : ''}`}>
-      <nav className="detail-breadcrumb" aria-label="地址导航"><Link to={returnPath} state={{ restoreCatalog: true }}>‹ 返回商城</Link><span>收货地址</span></nav>
+      <nav className="detail-breadcrumb" aria-label="地址导航"><Link to={returnPath} state={{ restoreCatalog: true }}>‹ {returnPath.startsWith('/checkout?') ? '返回结算' : '返回商城'}</Link><span>收货地址</span></nav>
       <div className="cart-page-heading"><div><h1>收货地址</h1><p>保存常用地址，下次收货更方便。</p></div>
         {addressesAvailable && !session && <button ref={addButton} className="button button--primary" disabled={busy || state.status !== 'ready' || !!state.pending} onClick={event => {
           formGeneration.current++; store.clearFeedback();
