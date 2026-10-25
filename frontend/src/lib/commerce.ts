@@ -84,4 +84,9 @@ export function paymentPath(id: string, returnTo: string | null = '/orders'): st
   return back === '/orders' ? path : `${path}?${new URLSearchParams({ return_to: back })}`;
 }
 
+export function paymentResultPath(id: string, returnTo: string | null = '/orders'): string {
+  const path = `/payments/${encodeURIComponent(id)}/result`, back = paymentReturnPath(returnTo);
+  return back === '/orders' ? path : `${path}?${new URLSearchParams({ return_to: back })}`;
+}
+
 export function formatDate(value: string): string { return new Date(value).toLocaleString('zh-CN', { hour12: false }); }

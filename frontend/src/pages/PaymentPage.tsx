@@ -1,16 +1,16 @@
 import { useEffect, useRef, useState } from 'react';
-import { Link, useParams, useSearchParams } from 'react-router-dom';
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { commerceAvailable, commerceGateway } from '../api/commerce.ts';
 import { BuyerWorkflow, remainingTime, useClock } from '../components/BuyerWorkflow.tsx';
 import { CancelPaymentConfirm } from '../components/CancelPaymentConfirm.tsx';
 import { useCommerce } from '../components/CommerceContext.ts';
 import { useCart } from '../components/CartContext.ts';
-import { CommerceError, formatDate, orderStatuses, ordersReturnPath, paymentReturnPath } from '../lib/commerce.ts';
+import { CommerceError, formatDate, orderStatuses, ordersReturnPath, paymentReturnPath, paymentResultPath } from '../lib/commerce.ts';
 import { formatMoney } from '../lib/catalog.ts';
 import type { PaymentGroup } from '../types/commerce.ts';
 
 export function PaymentPage() {
-  const { paymentId = '' } = useParams(), [params] = useSearchParams();
+  const { paymentId = '' } = useParams(), [params] = useSearchParams(), navigate = useNavigate();
   const backTo = paymentReturnPath(params.get('return_to'));
   const orderList = backTo.startsWith('/orders/') ? ordersReturnPath(new URLSearchParams(backTo.split('?')[1]).get('return_to')) : backTo;
   const transaction = useCommerce(), cart = useCart(), now = useClock();
@@ -44,9 +44,9 @@ export function PaymentPage() {
     if (!payment || locked || payment.status !== 'PENDING' || Date.parse(payment.expires_at) <= Date.now() || !payment.allowed_actions.includes('SIMULATE_PAY')) return;
     setNotice(''); focusAfterRead.current = true;
     try {
-      await transaction.store.pay(payment.payment_group_id);
-      setNotice('模拟付款成功，全部关联店铺订单已进入待发货。');
+      const paid = await transaction.store.pay(payment.payment_group_id);
       void cart.store.load().catch(() => undefined);
+      navigate(paymentResultPath(paid.payment_group_id, backTo), { replace: true });
     } catch {
       // A definitive failure rechecks T03 before another attempt; unknown results keep the original key.
       if (!transaction.store.getSnapshot().pending) setReload(value => value + 1);
@@ -90,7 +90,8 @@ export function PaymentPage() {
           {payment.allowed_actions.includes('CANCEL') && <button className="button" disabled={locked || expired} onClick={() => { transaction.store.clearError(); setConfirm(true); }}>取消本次结算</button>}
         </>}
         <Link className="button" to={orderList}>查看我的订单</Link>
-        <p className="workflow-muted">取消会一起关闭本支付单下全部待付款店铺订单，商品不会自动放回购物车。</p>
+        {payment.status !== 'PENDING' && <Link className="button" to={paymentResultPath(payment.payment_group_id, backTo)}>查看付款结果</Link>}
+        {payment.status === 'PENDING' && <p className="workflow-muted">取消会一起关闭本支付单下全部待付款店铺订单，商品不会自动放回购物车。</p>}
       </aside></div>
       {confirm && <CancelPaymentConfirm payment={payment} onClose={() => setConfirm(false)} onConfirm={() => void cancel()} />}
     </>}

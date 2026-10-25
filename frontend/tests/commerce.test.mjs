@@ -4,7 +4,7 @@ import { MockCommerce } from '../src/mocks/commerce.ts';
 import { MockCart } from '../src/mocks/cart.ts';
 import { MockAddresses } from '../src/mocks/address.ts';
 import { CommerceStore } from '../src/stores/commerce.ts';
-import { CommerceError, checkoutPath, readCheckoutSelection, addressReturnPath, readOrderQuery, paymentPath, paymentReturnPath } from '../src/lib/commerce.ts';
+import { CommerceError, checkoutPath, readCheckoutSelection, addressReturnPath, readOrderQuery, paymentPath, paymentReturnPath, paymentResultPath } from '../src/lib/commerce.ts';
 import { productDetails } from '../src/mocks/product.ts';
 
 function fixture() {
@@ -282,4 +282,29 @@ test('deadline crossed while preparing payment still rejects the transition with
   f.options.now = () => Date.parse(p.expires_at) - (calls++ === 0 ? 1 : 0);
   assert.throws(() => f.engine.pay(p.payment_group_id, 'boundary'), code('PAYMENT_EXPIRED')); assert.equal(f.snapshot(), bytes);
   assert.equal(f.engine.payment(p.payment_group_id).status, 'CLOSED');
+});
+
+test('result links encode opaque IDs and preserve only canonical order return context', () => {
+  const detail = '/orders/order-a?return_to=%2Forders%3Fstatus%3DPENDING_SHIPMENT%26page%3D2';
+  const path = paymentResultPath('pay/a?b', detail);
+  assert.equal(path.split('?')[0], '/payments/pay%2Fa%3Fb/result');
+  assert.equal(new URLSearchParams(path.slice(path.indexOf('?') + 1)).get('return_to'), detail);
+  assert.equal(paymentResultPath('pay', 'https://example.com'), '/payments/pay/result');
+  assert.equal(paymentResultPath('pay', '/payments/pay/result'), '/payments/pay/result');
+});
+test('reloading paid result data is read-only and never repeats payment or stock consumption', () => {
+  const f = fixture(), p = f.engine.submit(f.engine.preview(f.request).preview_token, 'submit'); f.engine.pay(p.payment_group_id, 'pay');
+  const bytes = f.snapshot(), writes = f.writes(); f.advance(2000);
+  for (let i = 0; i < 3; i++) {
+    const view = new MockCommerce(f.options).payment(p.payment_group_id);
+    assert.equal(view.status, 'PAID'); assert.ok(view.paid_at); assert.ok(view.shop_orders.every(o => o.status === 'PENDING_SHIPMENT'));
+    view.shop_orders[0].status = 'CLOSED';
+  }
+  assert.equal(f.snapshot(), bytes); assert.equal(f.writes(), writes); assert.equal(f.engine.catalog()[1].skus[0].available_stock, 6);
+});
+test('result queries retain pending/closed states instead of manufacturing payment success', () => {
+  const f = fixture(), p = f.engine.submit(f.engine.preview(f.direct).preview_token, 'submit'), bytes = f.snapshot();
+  assert.equal(new MockCommerce(f.options).payment(p.payment_group_id).status, 'PENDING'); assert.equal(f.snapshot(), bytes);
+  f.engine.cancel(p.payment_group_id, 'cancel'); const closed = f.snapshot();
+  assert.equal(new MockCommerce(f.options).payment(p.payment_group_id).status, 'CLOSED'); assert.equal(f.snapshot(), closed);
 });
