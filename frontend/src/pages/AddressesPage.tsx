@@ -50,7 +50,7 @@ export function AddressesPage() {
   const [cancelRequested, setCancelRequested] = useState(false);
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const firstInput = useRef<HTMLInputElement>(null), addButton = useRef<HTMLButtonElement>(null);
-  const recoveryButton = useRef<HTMLButtonElement>(null);
+  const recoveryButton = useRef<HTMLButtonElement>(null), reloadButton = useRef<HTMLButtonElement>(null);
   const returnFocus = useRef<HTMLElement | null>(null);
   const addressHeadings = useRef(new Map<string, HTMLHeadingElement>());
   const formGeneration = useRef(0);
@@ -132,29 +132,34 @@ export function AddressesPage() {
   async function setDefault(addressId: string) {
     try { await store.setDefault(addressId); focusAddress(addressId); } catch { /* Store exposes the error and recovery action. */ }
   }
-  function focusAfterDelete() {
+  function focusAddressList() {
     const first = store.getSnapshot().items[0];
     if (first) focusAddress(first.address_id);
     else requestAnimationFrame(() => addButton.current?.focus({ preventScroll: true }));
+  }
+  function focusRecoveryAction() {
+    requestAnimationFrame(() => (recoveryButton.current ?? reloadButton.current)?.focus({ preventScroll: true }));
   }
   async function removeAddress(addressId: string) {
     const current = store.getSnapshot();
     if (current.saving || current.pending || current.status !== 'ready') return;
     setDeleteId(null);
-    try { await store.remove(addressId); focusAfterDelete(); }
-    catch { requestAnimationFrame(() => recoveryButton.current?.focus({ preventScroll: true })); }
+    try { await store.remove(addressId); focusAddressList(); }
+    catch { focusRecoveryAction(); }
   }
   async function retry() {
     // A rejected write may be corrected in the form; retry the visible draft.
     if (!state.pending && state.failedOperation && (state.failedOperation.kind === 'create' || state.failedOperation.kind === 'update') && session) { await saveDraft(); return; }
     try {
       await store.retry();
-      if (state.pending?.kind === 'delete' || state.failedOperation?.kind === 'delete') focusAfterDelete();
+      if (state.pending?.kind === 'delete' || state.failedOperation?.kind === 'delete') focusAddressList();
       else if (state.pending?.kind === 'set-default') focusAddress(state.pending.address_id);
       else if (state.failedOperation?.kind === 'set-default') focusAddress(state.failedOperation.address_id);
       else if (session && state.pending) closeForm(true);
+      else if (!session) focusAddressList();
     } catch (error) {
       if (editing && error instanceof AddressError && ['EDIT_CONFLICT', 'NOT_FOUND'].includes(error.code)) setEditProblem(error.message);
+      focusRecoveryAction();
     }
   }
   const busy = state.saving || state.status === 'loading';
@@ -183,7 +188,7 @@ export function AddressesPage() {
         {state.status === 'loading' && <p className="cart-loading-copy" role="status">正在加载地址…</p>}
         {session && <form className="address-form" aria-label={editing ? '编辑收货地址' : '新增收货地址'} noValidate onSubmit={save}>
           <h2>{editing ? '编辑地址' : '新增地址'}</h2>
-          {editProblem && <div className="cart-error"><p role="alert">{editProblem}</p><button type="button" className="button" disabled={locked} onClick={() => void reloadOriginal()}>重新载入原地址（替换当前输入）</button></div>}
+          {editProblem && <div className="cart-error"><p role="alert">{editProblem}</p><button ref={reloadButton} type="button" className="button" disabled={locked} onClick={() => void reloadOriginal()}>重新载入原地址（替换当前输入）</button></div>}
           <div className="address-fields">{addressFields.map((field, index) => <div className={field.name === 'detail_address' ? 'address-field address-field-wide' : 'address-field'} key={field.name}>
             <label htmlFor={`address-${field.name}`}>{field.label}<span aria-hidden="true"> *</span></label>
             <input ref={index === 0 ? firstInput : undefined} id={`address-${field.name}`} name={field.name} value={draft[field.name]}

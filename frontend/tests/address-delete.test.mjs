@@ -164,3 +164,18 @@ test('unknown deletion of the last address confirms the same operation before pu
   assert.deepEqual(store.getSnapshot().items, []); assert.equal(store.getSnapshot().error, null);
   assert.equal(store.getSnapshot().pending, null); assert.equal(store.getSnapshot().saving, false);
 });
+
+test('repeated definitive delete failures keep the same retry target and default until one successful write', async () => {
+  const f = fixture(), store = new AddressStore(f.gateway, f.key); await store.load();
+  const before = f.snapshot(), saves = f.saves(); f.failSave(true);
+  for (const action of [() => store.remove(f.rows[0].address_id), () => store.retry(), () => store.retry()]) {
+    await assert.rejects(action, e => e.code === 'SERVICE_UNAVAILABLE');
+    assert.equal(f.snapshot(), before); assert.equal(f.saves(), saves);
+    assert.deepEqual(store.getSnapshot().failedOperation, { kind: 'delete', address_id: f.rows[0].address_id });
+    assert.equal(store.getSnapshot().pending, null); assert.equal(store.getSnapshot().saving, false);
+    assert.deepEqual(defaultIds(store.getSnapshot().items), [f.rows[0].address_id]);
+  }
+  f.failSave(false); await store.retry(); assert.equal(f.saves(), saves + 1);
+  assert.deepEqual(store.getSnapshot().items.map(row => row.address_id), [f.rows[1].address_id, f.rows[2].address_id]);
+  assert.deepEqual(defaultIds(store.getSnapshot().items), [f.rows[1].address_id]); assert.equal(store.getSnapshot().failedOperation, null);
+});
