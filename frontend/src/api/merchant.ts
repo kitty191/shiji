@@ -10,6 +10,7 @@ async function access<T>(run: () => T): Promise<T> {
   return run();
 }
 export const merchantGateway: MerchantGateway = {
+  ship: (id, request, key) => access(() => mockCommerce.ship(id, request, key)),
   orders: query => access(() => mockCommerce.merchantOrders(query)),
   order: id => access(() => mockCommerce.merchantOrder(id)),
 };

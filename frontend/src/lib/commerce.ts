@@ -1,4 +1,4 @@
-import type { CheckoutSelection, OrderQuery, OrderStatus } from '../types/commerce.ts';
+import type { CheckoutSelection, OrderQuery, OrderStatus, CommerceGateway } from '../types/commerce.ts';
 import type { ResultCode } from '../types/result.ts';
 import { buyerReturnPath, cartPath, productReturnPath } from './product.ts';
 
@@ -90,3 +90,12 @@ export function paymentResultPath(id: string, returnTo: string | null = '/orders
 }
 
 export function formatDate(value: string): string { return new Date(value).toLocaleString('zh-CN', { hour12: false }); }
+
+// A shipment can change an order without changing the payment's PAID state.
+export async function loadOrderDetail(gateway: Pick<CommerceGateway, 'order' | 'payment'>, id: string) {
+  let order = await gateway.order(id);
+  const payment = await gateway.payment(order.payment_group_id), link = payment.shop_orders.find(item => item.order_id === order.order_id);
+  if (!link) throw new CommerceError('SERVICE_UNAVAILABLE', '订单与支付单状态暂时不一致，请重新读取。');
+  if (payment.status !== order.payment_status || link.status !== order.status) order = await gateway.order(id);
+  return { order, payment };
+}

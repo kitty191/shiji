@@ -5,7 +5,9 @@ export type MerchantOrderSummary = Pick<BuyerOrder, 'order_id' | 'order_no' | 's
 export interface MerchantOrderDetail extends MerchantOrderSummary, Pick<BuyerOrder, 'address' | 'payment_status' | 'paid_at' | 'shipping_carrier' | 'tracking_no' | 'shipped_at' | 'received_at' | 'closed_at' | 'close_reason'> {}
 export interface MerchantOrderQuery extends OrderQuery { keyword: string }
 export interface MerchantOrderPage { items: MerchantOrderSummary[]; page: number; page_size: number; total: number; has_more: boolean }
+export interface ShipRequest { shipping_carrier: string; tracking_no: string }
 export interface MerchantGateway {
+  ship(id: string, request: ShipRequest, key: string): Promise<MerchantOrderDetail>;
   orders(query: MerchantOrderQuery): Promise<MerchantOrderPage>;
   order(id: string): Promise<MerchantOrderDetail>;
 }

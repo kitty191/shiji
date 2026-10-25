@@ -33,7 +33,7 @@ export function MerchantOrdersPage() {
   const loading = result.key !== key || result.status === 'loading';
   const page = result.key === key && result.status === 'ready' ? result.page : undefined;
   return <BuyerWorkflow title="店铺订单" subtitle={merchantAvailable ? `${merchantStoreName} · 查看本店成交记录。` : '查看本店成交记录。'}>
-    {merchantAvailable && <><p className="workflow-muted">当前为固定演示店铺，仅支持查看订单；发货功能暂未开放。</p>
+    {merchantAvailable && <><p className="workflow-muted">当前为固定演示店铺，可进入已付款、待发货订单的详情填写演示物流。</p>
       <section className="order-tools" aria-label="店铺订单筛选"><nav className="sort-row" aria-label="店铺订单状态">
         {([['', '全部'], ...Object.entries(orderStatuses)] as [MerchantOrderQuery['status'], string][]).map(([status, label]) => <button key={status} aria-pressed={query.status === status} onClick={() => update({ status })}>{label}</button>)}
       </nav><form className="order-search" onSubmit={search}>

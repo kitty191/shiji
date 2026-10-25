@@ -4,7 +4,7 @@ import { MockCommerce } from '../src/mocks/commerce.ts';
 import { MockCart } from '../src/mocks/cart.ts';
 import { MockAddresses } from '../src/mocks/address.ts';
 import { CommerceStore } from '../src/stores/commerce.ts';
-import { CommerceError, checkoutPath, readCheckoutSelection, addressReturnPath, readOrderQuery, paymentPath, paymentReturnPath, paymentResultPath } from '../src/lib/commerce.ts';
+import { CommerceError, checkoutPath, readCheckoutSelection, addressReturnPath, readOrderQuery, paymentPath, paymentReturnPath, paymentResultPath, loadOrderDetail } from '../src/lib/commerce.ts';
 import { productDetails } from '../src/mocks/product.ts';
 
 function fixture() {
@@ -307,4 +307,20 @@ test('result queries retain pending/closed states instead of manufacturing payme
   assert.equal(new MockCommerce(f.options).payment(p.payment_group_id).status, 'PENDING'); assert.equal(f.snapshot(), bytes);
   f.engine.cancel(p.payment_group_id, 'cancel'); const closed = f.snapshot();
   assert.equal(new MockCommerce(f.options).payment(p.payment_group_id).status, 'CLOSED'); assert.equal(f.snapshot(), closed);
+});
+
+
+test('buyer detail rechecks a shipment between order and payment reads even though both payment states stay PAID', async () => {
+  const f = fixture(); f.options.merchantStore = () => ({ store_id: 'store_home', name: '好物生活馆' });
+  const payment = f.engine.submit(f.engine.preview(f.request).preview_token, 'submit'); f.engine.pay(payment.payment_group_id, 'pay');
+  const id = payment.shop_orders.find(o => o.store_id === 'store_home').order_id, old = f.engine.order(id); let calls = 0;
+  f.engine.ship(id, { shipping_carrier: '演示物流', tracking_no: 'DEMO-001' }, 'ship');
+  const result = await loadOrderDetail({ order: async () => ++calls === 1 ? old : f.engine.order(id), payment: async p => f.engine.payment(p) }, id);
+  assert.equal(result.order.status, 'PENDING_RECEIPT'); assert.equal(result.order.tracking_no, 'DEMO-001'); assert.ok(result.order.shipped_at);
+  assert.equal(result.payment.status, 'PAID'); assert.equal(result.payment.shop_orders.find(o => o.order_id === id).status, result.order.status);
+});
+test('buyer detail still recovers closure when expiry happens between its two reads', async () => {
+  const f = fixture(), payment = f.engine.submit(f.engine.preview(f.request).preview_token, 'submit');
+  const result = await loadOrderDetail({ order: async id => f.engine.order(id), payment: async id => { f.advance(1000); return f.engine.payment(id); } }, payment.shop_orders[0].order_id);
+  assert.equal(result.order.status, 'CLOSED'); assert.equal(result.order.close_reason, 'TIMEOUT'); assert.equal(result.order.closed_at, payment.expires_at);
 });

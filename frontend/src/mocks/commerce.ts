@@ -1,15 +1,16 @@
 import type { Address } from '../types/address.ts';
-import type { MerchantOrderDetail, MerchantOrderPage, MerchantOrderQuery, MerchantOrderSummary } from '../types/merchant.ts';
+import type { MerchantOrderDetail, MerchantOrderPage, MerchantOrderQuery, MerchantOrderSummary, ShipRequest } from '../types/merchant.ts';
 import type { StoreBrief } from '../types/catalog.ts';
 import type { ProductView } from '../types/catalog.ts';
 import type { AddressSnapshot, BuyerOrder, CheckoutGroup, CheckoutLine, CheckoutPreview, CheckoutRequest, OrderPage, OrderQuery, PaymentGroup } from '../types/commerce.ts';
 import { CommerceError, normalizeSelection, orderStatuses } from '../lib/commerce.ts';
+import { normalizeShipping } from '../lib/merchant.ts';
 import { addressFields, normalizeAddress } from '../lib/address.ts';
 import { completeSku, inStock } from '../lib/product.ts';
 import { parseCartSnapshot } from './cart.ts';
 import type { PersistedCart } from './cart.ts';
 
-interface Receipt { action: 'submit' | 'cancel' | 'pay'; target: string; payment_group_id: string }
+interface Receipt { action: 'submit' | 'cancel' | 'pay' | 'ship'; target: string; payment_group_id: string; store_id?: string; request?: ShipRequest }
 interface Ledger { version: 1; orders: BuyerOrder[]; payments: PaymentGroup[]; bindings: Record<string, string>; receipts: Record<string, Receipt> }
 interface Options {
   catalog: () => readonly ProductView[]; addresses: () => Address[]; load: () => string | null; save: (value: string) => void;
@@ -55,7 +56,14 @@ function readLedger(value: unknown): Ledger {
     }
     if (ledger.orders.some(o => !ledger.payments.some(p => p.payment_group_id === o.payment_group_id))) throw Error();
     if (Object.values(ledger.bindings).some(id => !ledger.payments.some(p => p.payment_group_id === id)) ||
-      Object.values(ledger.receipts).some(r => !r || !['submit', 'cancel', 'pay'].includes(r.action) || !text(r.target) || !ledger.payments.some(p => p.payment_group_id === r.payment_group_id))) throw Error();
+      Object.values(ledger.receipts).some(r => !r || !['submit', 'cancel', 'pay', 'ship'].includes(r.action) || !text(r.target) || !ledger.payments.some(p => p.payment_group_id === r.payment_group_id))) throw Error();
+    for (const receipt of Object.values(ledger.receipts).filter(r => r.action === 'ship')) {
+      if (!text(receipt.store_id) || !receipt.request || normalizeShipping(receipt.request).shipping_carrier !== receipt.request.shipping_carrier || normalizeShipping(receipt.request).tracking_no !== receipt.request.tracking_no ||
+        !ledger.orders.some(o => o.order_id === receipt.target && o.store_id === receipt.store_id && o.payment_group_id === receipt.payment_group_id &&
+          o.shipping_carrier === receipt.request!.shipping_carrier && o.tracking_no === receipt.request!.tracking_no && ['PENDING_RECEIPT', 'COMPLETED'].includes(o.status))) throw Error();
+    }
+    if (ledger.orders.some(o => (o.status === 'PENDING_RECEIPT' || o.status === 'COMPLETED') &&
+      (!text(o.shipping_carrier) || !text(o.tracking_no) || !date(o.shipped_at)))) throw Error();
     return structuredClone(ledger);
   } catch { throw new CommerceError('SERVICE_UNAVAILABLE', '暂时无法读取订单，已有订单与购物车未被覆盖。'); }
 }
@@ -143,7 +151,7 @@ export class MockCommerce {
     while (this.previews.size > 100) this.previews.delete(this.previews.keys().next().value!);
     return quote;
   }
-  private receipt(ledger: Ledger, key: string, action: Receipt['action'], target: string): PaymentGroup | undefined {
+  private receipt(ledger: Ledger, key: string, action: Exclude<Receipt['action'], 'ship'>, target: string): PaymentGroup | undefined {
     if (!key) throw new CommerceError('INVALID_ARGUMENT', '操作标记不能为空。');
     const record = Object.hasOwn(ledger.receipts, key) ? ledger.receipts[key] : undefined;
     if (!record) return undefined;
@@ -225,7 +233,7 @@ export class MockCommerce {
   }
   private merchantSummary(order: BuyerOrder): MerchantOrderSummary {
     const { order_id, order_no, store_id, store_name, status, goods_amount, shipping_amount, total_amount, items, currency, created_at } = order;
-    return structuredClone({ order_id, order_no, store_id, store_name, status, goods_amount, shipping_amount, total_amount, items, currency, created_at, allowed_actions: [] });
+    return structuredClone({ order_id, order_no, store_id, store_name, status, goods_amount, shipping_amount, total_amount, items, currency, created_at, allowed_actions: order.payment_status === 'PAID' && order.status === 'PENDING_SHIPMENT' ? ['SHIP'] : [] });
   }
   merchantOrders(query: MerchantOrderQuery): MerchantOrderPage {
     const store = this.merchantStore();
@@ -241,8 +249,32 @@ export class MockCommerce {
   merchantOrder(id: string): MerchantOrderDetail {
     const store = this.merchantStore(), order = this.read().ledger.orders.find(o => o.order_id === id && o.store_id === store.store_id);
     if (!order) throw new CommerceError('NOT_FOUND', '没有找到本店订单。');
+    return this.merchantDetail(order);
+  }
+  private merchantDetail(order: BuyerOrder): MerchantOrderDetail {
     const { address, payment_status, paid_at, shipping_carrier, tracking_no, shipped_at, received_at, closed_at, close_reason } = order;
     return { ...this.merchantSummary(order), ...structuredClone({ address, payment_status, paid_at, shipping_carrier, tracking_no, shipped_at, received_at, closed_at, close_reason }) };
+  }
+  ship(id: string, input: ShipRequest, key: string): MerchantOrderDetail {
+    const store = this.merchantStore(), request = normalizeShipping(input), { cart, ledger } = this.read();
+    const order = ledger.orders.find(o => o.order_id === id && o.store_id === store.store_id);
+    if (!order) throw new CommerceError('NOT_FOUND', '没有找到本店订单。');
+    if (!key) throw new CommerceError('INVALID_ARGUMENT', '操作标记不能为空。');
+    const receipt = Object.hasOwn(ledger.receipts, key) ? ledger.receipts[key] : undefined;
+    if (receipt) {
+      if (receipt.action !== 'ship' || receipt.target !== id || receipt.store_id !== store.store_id || receipt.request?.shipping_carrier !== request.shipping_carrier || receipt.request?.tracking_no !== request.tracking_no) throw new CommerceError('IDEMPOTENCY_CONFLICT', '操作标记与原发货请求不一致。');
+      return this.merchantDetail(order);
+    }
+    if (order.payment_status !== 'PAID' || order.status !== 'PENDING_SHIPMENT') {
+      if (!['PENDING_RECEIPT', 'COMPLETED'].includes(order.status) || order.shipping_carrier !== request.shipping_carrier || order.tracking_no !== request.tracking_no) throw new CommerceError('INVALID_STATE', '仅已付款、待发货的本店订单可发货；已发货订单不能修改物流。');
+    } else {
+      order.status = 'PENDING_RECEIPT'; order.shipping_carrier = request.shipping_carrier; order.tracking_no = request.tracking_no;
+      order.shipped_at = new Date(this.time()).toISOString(); order.allowed_actions = [];
+      const payment = ledger.payments.find(p => p.payment_group_id === order.payment_group_id)!;
+      payment.shop_orders = payment.shop_orders.map(link => link.order_id === id ? { ...link, status: 'PENDING_RECEIPT' } : link);
+    }
+    ledger.receipts = { ...ledger.receipts, [key]: { action: 'ship', target: id, payment_group_id: order.payment_group_id, store_id: store.store_id, request } };
+    this.write(cart, ledger); return this.merchantDetail(order);
   }
   orders(query: OrderQuery): OrderPage {
     const items = this.read().ledger.orders.filter(o => (!query.status || o.status === query.status) && (!query.order_no || o.order_no.includes(query.order_no.trim())));

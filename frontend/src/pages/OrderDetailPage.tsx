@@ -4,7 +4,7 @@ import { commerceAvailable, commerceGateway } from '../api/commerce.ts';
 import { BuyerWorkflow, TransactionLines, remainingTime, useClock } from '../components/BuyerWorkflow.tsx';
 import { useCommerce } from '../components/CommerceContext.ts';
 import { useCart } from '../components/CartContext.ts';
-import { CommerceError, formatDate, ordersReturnPath, orderStatuses, paymentPath } from '../lib/commerce.ts';
+import { CommerceError, loadOrderDetail, formatDate, ordersReturnPath, orderStatuses, paymentPath } from '../lib/commerce.ts';
 import { formatMoney } from '../lib/catalog.ts';
 import { CancelPaymentConfirm } from '../components/CancelPaymentConfirm.tsx';
 import type { BuyerOrder, PaymentGroup } from '../types/commerce.ts';
@@ -18,13 +18,7 @@ export function OrderDetailPage() {
   const [result, setResult] = useState<{ id: string; status: 'loading' | 'ready' | 'error'; order?: BuyerOrder; payment?: PaymentGroup; error?: string; missing?: boolean }>({ id: orderId, status: 'loading' });
   useEffect(() => {
     let current = true; setConfirm(false); setResult({ id: orderId, status: 'loading' });
-    void commerceGateway.order(orderId).then(async order => {
-      const payment = await commerceGateway.payment(order.payment_group_id);
-      if (payment.status !== order.payment_status) {
-        order = { ...order, payment_status: payment.status, status: payment.shop_orders.find(o => o.order_id === order.order_id)!.status, paid_at: payment.paid_at, closed_at: payment.closed_at, close_reason: payment.close_reason, allowed_actions: payment.allowed_actions };
-      }
-      return { order, payment };
-    }).then(data => { if (current) setResult({ id: orderId, status: 'ready', ...data }); })
+    void loadOrderDetail(commerceGateway, orderId).then(data => { if (current) setResult({ id: orderId, status: 'ready', ...data }); })
       .catch(error => { if (current) setResult({ id: orderId, status: 'error', error: error instanceof Error ? error.message : '订单加载失败。', missing: error instanceof CommerceError && error.code === 'NOT_FOUND' }); });
     return () => { current = false; };
   }, [orderId, reload, transaction.state.revision]);
@@ -54,7 +48,7 @@ export function OrderDetailPage() {
       <div className="checkout-layout"><div className="checkout-content">
         <section className="workflow-panel" aria-label="订单收货信息"><h2>收货信息</h2><p>{order.address.recipient_name}　{order.address.recipient_phone}</p><p>{order.address.province} {order.address.city} {order.address.district} {order.address.detail_address}</p><p className="workflow-muted">修改或删除地址簿记录，不会改变本订单的收货快照。</p></section>
         <section className="workflow-panel" aria-label="订单商品"><h2>{order.store_name}</h2><TransactionLines items={order.items} /><p className="transaction-group-total">商品 ¥{formatMoney(order.goods_amount)} + 运费 ¥{formatMoney(order.shipping_amount)} = ¥{formatMoney(order.total_amount)}</p></section>
-        <section className="workflow-panel" aria-label="订单时间与物流"><h2>订单信息</h2><dl className="order-metadata"><div><dt>创建时间</dt><dd>{formatDate(order.created_at)}</dd></div><div><dt>付款截止</dt><dd>{formatDate(order.payment_expires_at)}</dd></div>{order.paid_at && <div><dt>付款时间</dt><dd>{formatDate(order.paid_at)}</dd></div>}{order.closed_at && <div><dt>关闭时间</dt><dd>{formatDate(order.closed_at)}</dd></div>}<div><dt>物流信息</dt><dd>{order.shipping_carrier && order.tracking_no ? `${order.shipping_carrier} · ${order.tracking_no}` : '暂无物流信息'}</dd></div></dl></section>
+        <section className="workflow-panel" aria-label="订单时间与物流"><h2>订单信息</h2><dl className="order-metadata"><div><dt>创建时间</dt><dd>{formatDate(order.created_at)}</dd></div><div><dt>付款截止</dt><dd>{formatDate(order.payment_expires_at)}</dd></div>{order.paid_at && <div><dt>付款时间</dt><dd>{formatDate(order.paid_at)}</dd></div>}{order.shipped_at && <div><dt>发货时间</dt><dd>{formatDate(order.shipped_at)}</dd></div>}{order.closed_at && <div><dt>关闭时间</dt><dd>{formatDate(order.closed_at)}</dd></div>}<div><dt>物流信息</dt><dd>{order.shipping_carrier && order.tracking_no ? `${order.shipping_carrier} · ${order.tracking_no}` : '暂无物流信息'}</dd></div></dl></section>
       </div><aside className="workflow-panel checkout-summary" aria-label="本次结算"><h2>本次结算</h2><p className="workflow-muted">支付单 {payment.payment_no}</p><p>共 {payment.shop_orders.length} 笔店铺订单</p><strong className="checkout-total">¥{formatMoney(payment.total_amount)}</strong>
         <ul className="payment-order-links">{payment.shop_orders.map(link => <li key={link.order_id}><Link to={`/orders/${encodeURIComponent(link.order_id)}?${new URLSearchParams({ return_to: backTo })}`} aria-current={link.order_id === order.order_id ? 'page' : undefined}>{link.store_name} · ¥{formatMoney(link.total_amount)}<span>{orderStatuses[link.status]}</span></Link></li>)}</ul>
         <Link className="button" to={paymentPath(payment.payment_group_id, `${location.pathname}${location.search}`)}>查看付款页面</Link>
