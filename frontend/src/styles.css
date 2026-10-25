@@ -108,5 +108,8 @@
 .address-default-check{display:flex;align-items:center;gap:8px;margin-top:24px;font-size:13px}
 .address-default-check input{accent-color:var(--brand);width:16px;height:16px}.address-actions{display:flex;gap:12px;margin-top:24px}
 .address-leave-dialog{left:50%;top:50%;transform:translate(-50%,-50%)}
+.address-delete-dialog{max-height:calc(100dvh - 48px);overflow-y:auto;overflow-wrap:anywhere}
+.address-delete-summary{padding:12px;border:1px solid var(--line);border-radius:8px;margin-bottom:16px}
+.address-delete-summary p{margin-top:6px}.address-delete-availability{margin-top:12px}
 @media(max-width:760px){.address-grid,.address-fields{grid-template-columns:minmax(0,1fr)}.address-card,.address-form{padding:20px}}
 }

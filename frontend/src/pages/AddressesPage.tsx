@@ -3,6 +3,7 @@ import type { FormEvent } from 'react';
 import { Link, useBeforeUnload, useBlocker, useNavigate, useSearchParams } from 'react-router-dom';
 import { addressesAvailable } from '../api/address.ts';
 import { useAddresses } from '../components/AddressProvider.tsx';
+import { AddressDeleteConfirm } from '../components/AddressDeleteConfirm.tsx';
 import { Header } from '../components/Header.tsx';
 import { FloatingTools, useRailState } from '../components/FloatingTools.tsx';
 import { AddressError, addressEditRequest, addressFields, emptyAddress, normalizeAddress } from '../lib/address.ts';
@@ -47,6 +48,7 @@ export function AddressesPage() {
   const [errors, setErrors] = useState<AddressFieldErrors>({});
   const [editProblem, setEditProblem] = useState<string | null>(null);
   const [cancelRequested, setCancelRequested] = useState(false);
+  const [deleteId, setDeleteId] = useState<string | null>(null);
   const firstInput = useRef<HTMLInputElement>(null), addButton = useRef<HTMLButtonElement>(null);
   const returnFocus = useRef<HTMLElement | null>(null);
   const addressHeadings = useRef(new Map<string, HTMLHeadingElement>());
@@ -143,6 +145,7 @@ export function AddressesPage() {
   }
   const busy = state.saving || state.status === 'loading';
   const locked = busy || !!state.pending;
+  const deleteTarget = state.items.find(address => address.address_id === deleteId);
   return <div className="site-shell">
     <div className="preview-note"><span>收货地址预览 · {addressesAvailable ? '模拟数据' : 'API 数据'}</span><a href={prototypeUrl('addresses')} target="_blank" rel="noopener noreferrer">查看完整交互原型 ↗</a></div>
     <Header keyword={keyword} onSearch={value => navigate(`/buyer?${queryParams({ ...readQuery(new URLSearchParams()), keyword: value })}`)} />
@@ -183,6 +186,7 @@ export function AddressesPage() {
           {addressesAvailable && <div className="address-actions">
             <button className="text-button" aria-label={`编辑${address.recipient_name}的地址`} disabled={locked || state.status !== 'ready' || !!session} onClick={event => edit(address, event.currentTarget)}>编辑</button>
             {!address.is_default && <button className="text-button" aria-label={`将${address.recipient_name}的地址设为默认`} disabled={locked || state.status !== 'ready' || !!session} onClick={() => void setDefault(address.address_id)}>{state.saving && state.pending?.kind === 'set-default' && state.pending.address_id === address.address_id ? '正在设置…' : '设为默认'}</button>}
+            <button className="text-button" aria-label={`删除${address.recipient_name}的地址`} disabled={locked || state.status !== 'ready' || !!session} onClick={() => setDeleteId(address.address_id)}>删除</button>
           </div>}
         </article>)}</div>}
       </section>
@@ -190,6 +194,7 @@ export function AddressesPage() {
     {(cancelRequested || blocker.state === 'blocked') && <LeaveAddressConfirm saving={state.saving} editing={editing} pending={!!state.pending} writeConfirmed={state.writeConfirmed}
       onStay={() => { setCancelRequested(false); if (blocker.state === 'blocked') blocker.reset(); }}
       onLeave={() => { if (blocker.state === 'blocked') blocker.proceed(); else closeForm(); }} />}
+    {deleteTarget && <AddressDeleteConfirm address={deleteTarget} nextDefault={state.items.find(address => address.address_id !== deleteId)} onClose={() => setDeleteId(null)} />}
     <FloatingTools collapsed={collapsed} onCollapse={setCollapsed} />
   </div>;
 }
