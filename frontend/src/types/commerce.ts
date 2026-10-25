@@ -38,6 +38,7 @@ export interface CommerceGateway {
   submit(token: string, key: string): Promise<PaymentGroup>;
   pay(paymentId: string, key: string): Promise<PaymentGroup>;
   cancel(paymentId: string, key: string): Promise<PaymentGroup>;
+  confirmReceipt(orderId: string, key: string): Promise<BuyerOrder>;
   orders(query: OrderQuery): Promise<OrderPage>;
   order(id: string): Promise<BuyerOrder>;
   payment(id: string): Promise<PaymentGroup>;

@@ -10,7 +10,7 @@ import { completeSku, inStock } from '../lib/product.ts';
 import { parseCartSnapshot } from './cart.ts';
 import type { PersistedCart } from './cart.ts';
 
-interface Receipt { action: 'submit' | 'cancel' | 'pay' | 'ship'; target: string; payment_group_id: string; store_id?: string; request?: ShipRequest }
+interface Receipt { action: 'submit' | 'cancel' | 'pay' | 'ship' | 'receive'; target: string; payment_group_id: string; store_id?: string; request?: ShipRequest }
 interface Ledger { version: 1; orders: BuyerOrder[]; payments: PaymentGroup[]; bindings: Record<string, string>; receipts: Record<string, Receipt> }
 interface Options {
   catalog: () => readonly ProductView[]; addresses: () => Address[]; load: () => string | null; save: (value: string) => void;
@@ -56,7 +56,7 @@ function readLedger(value: unknown): Ledger {
     }
     if (ledger.orders.some(o => !ledger.payments.some(p => p.payment_group_id === o.payment_group_id))) throw Error();
     if (Object.values(ledger.bindings).some(id => !ledger.payments.some(p => p.payment_group_id === id)) ||
-      Object.values(ledger.receipts).some(r => !r || !['submit', 'cancel', 'pay', 'ship'].includes(r.action) || !text(r.target) || !ledger.payments.some(p => p.payment_group_id === r.payment_group_id))) throw Error();
+      Object.values(ledger.receipts).some(r => !r || !['submit', 'cancel', 'pay', 'ship', 'receive'].includes(r.action) || !text(r.target) || !ledger.payments.some(p => p.payment_group_id === r.payment_group_id))) throw Error();
     for (const receipt of Object.values(ledger.receipts).filter(r => r.action === 'ship')) {
       if (!text(receipt.store_id) || !receipt.request || normalizeShipping(receipt.request).shipping_carrier !== receipt.request.shipping_carrier || normalizeShipping(receipt.request).tracking_no !== receipt.request.tracking_no ||
         !ledger.orders.some(o => o.order_id === receipt.target && o.store_id === receipt.store_id && o.payment_group_id === receipt.payment_group_id &&
@@ -64,6 +64,8 @@ function readLedger(value: unknown): Ledger {
     }
     if (ledger.orders.some(o => (o.status === 'PENDING_RECEIPT' || o.status === 'COMPLETED') &&
       (!text(o.shipping_carrier) || !text(o.tracking_no) || !date(o.shipped_at)))) throw Error();
+    if (ledger.orders.some(o => o.status === 'COMPLETED' ? !date(o.received_at) : o.received_at !== null) ||
+      Object.values(ledger.receipts).some(r => r.action === 'receive' && !ledger.orders.some(o => o.order_id === r.target && o.payment_group_id === r.payment_group_id && o.status === 'COMPLETED'))) throw Error();
     return structuredClone(ledger);
   } catch { throw new CommerceError('SERVICE_UNAVAILABLE', '暂时无法读取订单，已有订单与购物车未被覆盖。'); }
 }
@@ -85,6 +87,8 @@ export class MockCommerce {
       if (payment.status === 'PENDING') payment.allowed_actions = ['SIMULATE_PAY', 'CANCEL'];
       payment.checked_at = new Date(now).toISOString();
     }
+    // Derive buyer actions on read so orders saved before receipt support remain usable.
+    for (const order of ledger.orders) order.allowed_actions = order.status === 'PENDING_PAYMENT' ? ['CANCEL'] : order.status === 'PENDING_RECEIPT' ? ['CONFIRM_RECEIPT'] : [];
     return { cart, ledger };
   }
   private close(ledger: Ledger, payment: PaymentGroup, reason: string, timestamp: string): void {
@@ -151,7 +155,7 @@ export class MockCommerce {
     while (this.previews.size > 100) this.previews.delete(this.previews.keys().next().value!);
     return quote;
   }
-  private receipt(ledger: Ledger, key: string, action: Exclude<Receipt['action'], 'ship'>, target: string): PaymentGroup | undefined {
+  private receipt(ledger: Ledger, key: string, action: 'submit' | 'cancel' | 'pay', target: string): PaymentGroup | undefined {
     if (!key) throw new CommerceError('INVALID_ARGUMENT', '操作标记不能为空。');
     const record = Object.hasOwn(ledger.receipts, key) ? ledger.receipts[key] : undefined;
     if (!record) return undefined;
@@ -269,12 +273,30 @@ export class MockCommerce {
       if (!['PENDING_RECEIPT', 'COMPLETED'].includes(order.status) || order.shipping_carrier !== request.shipping_carrier || order.tracking_no !== request.tracking_no) throw new CommerceError('INVALID_STATE', '仅已付款、待发货的本店订单可发货；已发货订单不能修改物流。');
     } else {
       order.status = 'PENDING_RECEIPT'; order.shipping_carrier = request.shipping_carrier; order.tracking_no = request.tracking_no;
-      order.shipped_at = new Date(this.time()).toISOString(); order.allowed_actions = [];
+      order.shipped_at = new Date(this.time()).toISOString(); order.allowed_actions = ['CONFIRM_RECEIPT'];
       const payment = ledger.payments.find(p => p.payment_group_id === order.payment_group_id)!;
       payment.shop_orders = payment.shop_orders.map(link => link.order_id === id ? { ...link, status: 'PENDING_RECEIPT' } : link);
     }
     ledger.receipts = { ...ledger.receipts, [key]: { action: 'ship', target: id, payment_group_id: order.payment_group_id, store_id: store.store_id, request } };
     this.write(cart, ledger); return this.merchantDetail(order);
+  }
+  confirmReceipt(id: string, key: string): BuyerOrder {
+    const { cart, ledger } = this.read(), order = ledger.orders.find(o => o.order_id === id);
+    if (!order) throw new CommerceError('NOT_FOUND', '没有找到这笔订单。');
+    if (!key) throw new CommerceError('INVALID_ARGUMENT', '操作标记不能为空。');
+    const receipt = Object.hasOwn(ledger.receipts, key) ? ledger.receipts[key] : undefined;
+    if (receipt) {
+      if (receipt.action !== 'receive' || receipt.target !== id) throw new CommerceError('IDEMPOTENCY_CONFLICT', '操作标记与原收货请求不一致。');
+      return structuredClone(order);
+    }
+    if (order.payment_status !== 'PAID' || !['PENDING_RECEIPT', 'COMPLETED'].includes(order.status)) throw new CommerceError('INVALID_STATE', '仅已付款、待收货的订单可确认收货，请核对最新状态。');
+    if (order.status === 'PENDING_RECEIPT') {
+      order.status = 'COMPLETED'; order.received_at = new Date(this.time()).toISOString(); order.allowed_actions = [];
+      const payment = ledger.payments.find(p => p.payment_group_id === order.payment_group_id)!;
+      payment.shop_orders = payment.shop_orders.map(link => link.order_id === id ? { ...link, status: 'COMPLETED' } : link);
+    }
+    ledger.receipts = { ...ledger.receipts, [key]: { action: 'receive', target: id, payment_group_id: order.payment_group_id } };
+    this.write(cart, ledger); return structuredClone(order);
   }
   orders(query: OrderQuery): OrderPage {
     const items = this.read().ledger.orders.filter(o => (!query.status || o.status === query.status) && (!query.order_no || o.order_no.includes(query.order_no.trim())));

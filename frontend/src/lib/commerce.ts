@@ -68,6 +68,9 @@ export function ordersReturnPath(value: string | null): string {
   }
   return '/orders';
 }
+export function buyerOrderPath(id: string, returnTo: string | null = '/orders'): string {
+  return `/orders/${encodeURIComponent(id)}?${new URLSearchParams({ return_to: ordersReturnPath(returnTo) })}`;
+}
 // Payment pages may return to an order list or one order, never another checkout/payment page.
 export function paymentReturnPath(value: string | null): string {
   if (value?.startsWith('/orders/') && !value.includes('#')) {
@@ -91,7 +94,7 @@ export function paymentResultPath(id: string, returnTo: string | null = '/orders
 
 export function formatDate(value: string): string { return new Date(value).toLocaleString('zh-CN', { hour12: false }); }
 
-// A shipment can change an order without changing the payment's PAID state.
+// A shipment or receipt can change an order without changing the payment's PAID state.
 export async function loadOrderDetail(gateway: Pick<CommerceGateway, 'order' | 'payment'>, id: string) {
   let order = await gateway.order(id);
   const payment = await gateway.payment(order.payment_group_id), link = payment.shop_orders.find(item => item.order_id === order.order_id);
