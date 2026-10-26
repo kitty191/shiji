@@ -1822,12 +1822,21 @@
         gap: 8px
     }
 
-    .cart-undo-notice {
+    .global-notices {
         position: fixed;
         bottom: 24px;
         left: max(24px, calc((100vw - 1280px)/2 + 24px));
         width: min(416px, calc(100vw - 112px));
+        max-height: calc(100vh - 48px);
         z-index: 8;
+        display: grid;
+        gap: 12px;
+        overflow-y: auto;
+        pointer-events: none
+    }
+
+    .cart-undo-notice {
+        pointer-events: auto;
         padding: 16px 20px;
         border: 1px solid var(--line);
         border-radius: 12px;

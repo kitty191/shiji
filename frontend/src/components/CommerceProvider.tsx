@@ -7,11 +7,12 @@ import { commerceGateway } from '../api/commerce.ts';
 import { buyerOrderPath, ordersReturnPath, paymentPath, paymentResultPath, paymentReturnPath } from '../lib/commerce.ts';
 import { CommerceStore } from '../stores/commerce.ts';
 import { useCart } from './CartContext.ts';
+import { CartUndoNotice } from './CartUndoNotice.tsx';
 import { CommerceContext, useCommerce } from './CommerceContext.ts';
 
 export function CommerceProvider({ children }: { children: ReactNode }) {
   const [store] = useState(() => new CommerceStore(commerceGateway, undefined, merchantGateway));
-  return <CommerceContext value={store}>{children}<TransactionRecovery /></CommerceContext>;
+  return <CommerceContext value={store}>{children}<div className="global-notices"><TransactionRecovery /><CartUndoNotice /></div></CommerceContext>;
 }
 function TransactionRecovery() {
   const { store, state } = useCommerce(), cart = useCart(), navigate = useNavigate(), location = useLocation();

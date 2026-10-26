@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { commerceAvailable, commerceGateway } from '../api/commerce.ts';
 import { useAddresses } from '../components/AddressProvider.tsx';
@@ -15,6 +15,7 @@ export function CheckoutPage() {
   const addresses = useAddresses(), cart = useCart(), transaction = useCommerce(), now = useClock();
   const [reload, setReload] = useState(0), [invalidated, setInvalidated] = useState(false);
   const [preview, setPreview] = useState<{ key: string; status: 'loading' | 'ready' | 'error'; data?: CheckoutPreview; error?: string }>({ key: '', status: 'loading' });
+  const wasBlocked = useRef(false), resumeAfterBlock = useRef(false);
   let selection, selectionError = '';
   try { selection = readCheckoutSelection(params); } catch (error) { selectionError = error instanceof Error ? error.message : '结算内容无效。'; }
   const selectionKey = selection ? JSON.stringify(selection) : '', addressId = params.get('address_id') || '', key = `${selectionKey}|${addressId}`;
@@ -29,13 +30,25 @@ export function CheckoutPage() {
     }
   }, [addresses.state.status, addresses.state.items, addressId]);
   useEffect(() => {
-    if (!commerceAvailable || !selectionKey || !addressId || addressBusy || blocked) return;
+    if (!commerceAvailable || !selectionKey || !addressId) return;
+    if (blocked) {
+      wasBlocked.current = true;
+      if (addressBusy || preview.key !== key || preview.status !== 'ready') resumeAfterBlock.current = true;
+      return;
+    }
+    if (addressBusy) return;
+    if (wasBlocked.current) {
+      // An existing quote must retain a submit failure until the user explicitly refreshes it.
+      const shouldResume = resumeAfterBlock.current || preview.key !== key || preview.status !== 'ready';
+      wasBlocked.current = false; resumeAfterBlock.current = false;
+      if (!shouldResume) return;
+    }
     let current = true; setInvalidated(false); setPreview({ key, status: 'loading' });
     void commerceGateway.preview({ ...JSON.parse(selectionKey), address_id: addressId }).then(data => {
       if (current) setPreview({ key, status: 'ready', data });
     }).catch(error => { if (current) setPreview({ key, status: 'error', error: error instanceof Error ? error.message : '预览失败，请重试。' }); });
     return () => { current = false; };
-  }, [key, reload, addressBusy]);
+  }, [key, reload, addressBusy, blocked]);
   const quote = preview.key === key && preview.status === 'ready' ? preview.data : undefined;
   const expired = !!quote && Date.parse(quote.preview_expires_at) <= now;
   const validAddress = addresses.state.items.some(a => a.address_id === addressId);
@@ -68,7 +81,7 @@ export function CheckoutPage() {
           }}><option value="">请选择地址</option>{addressId && !validAddress && <option value={addressId}>原地址已不存在，请重新选择</option>}{addresses.state.items.map(a => <option key={a.address_id} value={a.address_id}>{a.recipient_name} · {a.detail_address}{a.is_default ? '（默认）' : ''}</option>)}</select></label>}
           {quote && <div className="checkout-address-snapshot"><strong>{quote.address.recipient_name}　{quote.address.recipient_phone}</strong><p>{quote.address.province} {quote.address.city} {quote.address.district} {quote.address.detail_address}</p></div>}
         </section>
-        {addressId && !addressBusy && (preview.key !== key || preview.status === 'loading') && <p role="status">正在核对结算内容…</p>}
+        {addressId && !addressBusy && (preview.key !== key || preview.status === 'loading') && <p role="status">{blocked ? '请先确认正在处理的交易，完成后将自动核对结算内容。' : '正在核对结算内容…'}</p>}
         {preview.key === key && preview.status === 'error' && <div className="cart-error" role="alert"><p>{preview.error}</p><button className="button" disabled={blocked} onClick={() => void refresh()}>重新预览</button></div>}
         {quote?.groups.map(group => <section className="workflow-panel" key={group.store.store_id} aria-label={`${group.store.name}结算商品`}><h2>{group.store.name}</h2><TransactionLines items={group.items} /><p className="transaction-group-total">店铺合计 ¥{formatMoney(group.total_amount)}</p></section>)}
       </div><aside className="workflow-panel checkout-summary" aria-label="结算明细"><h2>结算明细</h2>
