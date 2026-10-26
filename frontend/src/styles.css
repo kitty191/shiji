@@ -540,7 +540,7 @@
         max-width: 100%
     }
 
-    .store-link:hover {
+    a.store-link:hover {
         color: var(--brand)
     }
 
@@ -2415,4 +2415,70 @@
 
 .payment-shop-order .order-card-heading {
     margin-bottom: 16px
+}
+
+@layer components {
+    .store-banner {
+        display: flex;
+        align-items: center;
+        gap: 20px;
+        padding: 24px;
+        margin-bottom: 28px;
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        background: var(--panel)
+    }
+
+    .store-symbol {
+        display: grid;
+        place-items: center;
+        flex: 0 0 64px;
+        height: 64px;
+        border-radius: 16px;
+        overflow: hidden;
+        background: var(--soft);
+        color: var(--brand);
+        font-size: 28px
+    }
+
+    .store-symbol img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover
+    }
+
+    .store-copy {
+        min-width: 0
+    }
+
+    .store-copy h1 {
+        font-size: 26px;
+        overflow-wrap: anywhere
+    }
+
+    .store-copy p {
+        margin-top: 8px;
+        color: var(--muted);
+        font-size: 14px;
+        white-space: pre-wrap;
+        overflow-wrap: anywhere
+    }
+
+    .store-products-heading {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        flex-wrap: wrap;
+        gap: 12px;
+        margin-bottom: 20px
+    }
+
+    .store-products-heading h2 {
+        font-size: 18px
+    }
+
+    .store-products-heading p {
+        color: var(--muted);
+        font-size: 13px
+    }
 }

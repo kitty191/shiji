@@ -61,20 +61,38 @@ export function buyerReturnPath(value: string | null): string {
   return value === '/buyer' || (value?.startsWith('/buyer?') && !value.includes('#')) ? value : '/buyer';
 }
 
+export function storePath(storeId: string, returnTo: string | null = '/buyer'): string {
+  const base = `/stores/${encodeURIComponent(storeId)}`, buyer = buyerReturnPath(returnTo);
+  return buyer === '/buyer' ? base : `${base}?${new URLSearchParams({ return_to: buyer })}`;
+}
+
+function normalizedStorePath(value: string | null): string | undefined {
+  if (!value || value.includes('#')) return;
+  const match = /^\/stores\/([^/?#]+)(?:\?(.*))?$/.exec(value);
+  if (!match) return;
+  try {
+    const id = decodeURIComponent(match[1]);
+    if (!id || id === '.' || id === '..') return;
+    return storePath(id, new URLSearchParams(match[2]).get('return_to'));
+  }
+  catch { return; }
+}
+
 export function cartPath(value: string | null): string {
   const buyer = buyerReturnPath(value);
   return buyer === '/buyer' ? '/cart' : `/cart?${new URLSearchParams({ return_to: buyer })}`;
 }
 
-// Detail returns may point to the cart, whose own return context is buyer-only.
-// Canonicalizing here prevents recursive cart links or arbitrary destinations.
+// Cart and store returns carry only a buyer context, preventing recursive return links.
+// Canonicalizing here also rejects arbitrary destinations.
 export function productReturnPath(value: string | null): string {
   if (value === '/cart') return value;
   if (value?.startsWith('/cart?') && !value.includes('#')) return cartPath(new URLSearchParams(value.slice(6)).get('return_to'));
-  return buyerReturnPath(value);
+  return normalizedStorePath(value) ?? buyerReturnPath(value);
 }
 
 export function buyerContextPath(value: string | null): string {
   const path = productReturnPath(value);
-  return path === '/cart' || path.startsWith('/cart?') ? buyerReturnPath(new URLSearchParams(path.split('?')[1]).get('return_to')) : path;
+  return path === '/cart' || path.startsWith('/cart?') || path.startsWith('/stores/')
+    ? buyerReturnPath(new URLSearchParams(path.split('?')[1]).get('return_to')) : path;
 }

@@ -22,7 +22,8 @@ export function CartPanel({ top, trigger }: { top: number; trigger: RefObject<HT
   }, [close, trigger]);
   const location = useLocation();
   const params = new URLSearchParams(location.search);
-  const returnPath = productReturnPath(location.pathname === '/buyer' ? `${location.pathname}${location.search}` : params.get('return_to'));
+  const fromCatalog = location.pathname === '/buyer' || location.pathname.startsWith('/stores/');
+  const returnPath = productReturnPath(fromCatalog ? `${location.pathname}${location.search}` : params.get('return_to'));
   useEffect(() => {
     previousFocus.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     closeButton.current?.focus({ preventScroll: true });

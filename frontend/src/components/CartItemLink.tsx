@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { cartItemTarget } from '../lib/cart.ts';
-import { prototypeUrl } from '../lib/catalog.ts';
+import { buyerContextPath, storePath } from '../lib/product.ts';
 import type { CartItem } from '../types/cart.ts';
 
 function CartImage({ item }: { item: CartItem }) {
@@ -17,6 +17,6 @@ export function CartItemLink({ item, storeName, returnTo, fromCart = false, onNa
   const target = cartItemTarget(item, returnTo);
   const content = <><CartImage item={item} /><span className="cart-item-copy"><strong>{item.name}</strong><small>{item.spec_values.map(value => value.value).join(' · ') || '默认规格'}</small></span></>;
   if (target?.type === 'product') return <Link className="cart-item-link" onClick={onNavigate} to={target.to} state={fromCart ? { fromCart: true } : undefined}>{content}</Link>;
-  if (target?.type === 'store') return <a className="cart-item-link" href={prototypeUrl('store', { storeName })} target="_blank" rel="noopener noreferrer" title="查看原店铺交互原型">{content}</a>;
+  if (target?.type === 'store') return <Link className="cart-item-link" to={storePath(item.navigation.target_id!, buyerContextPath(returnTo))} onClick={onNavigate} title={`进入${storeName}原店铺`}>{content}</Link>;
   return <div className="cart-item-link">{content}</div>;
 }

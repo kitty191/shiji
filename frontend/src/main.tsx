@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { createHashRouter, Navigate, Outlet, RouterProvider, ScrollRestoration } from 'react-router-dom';
 import { BuyerHome } from './pages/BuyerHome.tsx';
 import { ProductDetail } from './pages/ProductDetail.tsx';
+import { StorePage } from './pages/StorePage.tsx';
 import { CartPage } from './pages/CartPage.tsx';
 import { CartProvider } from './components/CartProvider.tsx';
 import { AddressProvider } from './components/AddressProvider.tsx';
@@ -31,6 +32,7 @@ const router = createHashRouter([{
     { path: '/orders', element: <OrdersPage /> },
     { path: '/orders/:orderId', element: <OrderDetailPage /> },
     { path: '/products/:productId', element: <ProductDetail /> },
+    { path: '/stores/:storeId', element: <StorePage /> },
     { path: '*', element: <main className="route-error"><h1>没有找到这个页面</h1><a href="#/buyer">返回首页</a></main> },
   ]
 }]);

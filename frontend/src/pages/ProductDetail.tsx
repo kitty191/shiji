@@ -9,13 +9,14 @@ import { ProductCard } from '../components/ProductCard.tsx';
 import { useCart } from '../components/CartContext.ts';
 import { cartAvailable } from '../api/cart.ts';
 import { formatMoney, prototypeUrl, queryParams, readQuery } from '../lib/catalog.ts';
-import { buyerContextPath, productReturnPath, completeSku, galleryFrames, inStock, normalizeProductParams, productQuantity, quantityLimit, selectedSku, skuFrame, skuLabel } from '../lib/product.ts';
+import { buyerContextPath, productReturnPath, storePath, completeSku, galleryFrames, inStock, normalizeProductParams, productQuantity, quantityLimit, selectedSku, skuFrame, skuLabel } from '../lib/product.ts';
 import { checkoutPath } from '../lib/commerce.ts';
 import { commerceAvailable } from '../api/commerce.ts';
 import { useCommerce } from '../components/CommerceContext.ts';
 import type { OffSaleView, ProductCard as Card, ProductDetail as Product, ProductView } from '../types/catalog.ts';
 
 function OffSale({ product }: { product: OffSaleView }) {
+  const [params] = useSearchParams();
   const [items, setItems] = useState<Card[]>([]);
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading');
   const [reload, setReload] = useState(0);
@@ -30,7 +31,7 @@ function OffSale({ product }: { product: OffSaleView }) {
   return <>
     <section className="empty-state off-sale-state" aria-label="下架商品">
       <h1>商品已下架</h1><p>这件商品暂时无法购买，可以看看店里的其他好物。</p>
-      <a className="button" href={prototypeUrl('store', { storeName: product.store.name })} target="_blank" rel="noopener noreferrer">进入{product.store.name} ↗</a>
+      <Link className="button" to={storePath(product.store.store_id, buyerContextPath(params.get('return_to')))}>进入{product.store.name}</Link>
     </section>
     <section className="recommendations" aria-label="其他商品推荐"><h2>看看其他好物</h2>
       {status === 'loading' && <p role="status">正在加载推荐商品…</p>}
@@ -67,7 +68,7 @@ function ProductContent({ product }: { product: Product }) {
       <ProductGallery frames={frames} active={activeFrame} cover={product.cover_image} name={product.name}
         onChange={image_id => update({ image_id })} />
       <section className="detail-info" aria-label="商品资料">
-        <a className="detail-store" href={prototypeUrl('store', { storeName: product.store.name })} target="_blank" rel="noopener noreferrer">{product.store.name} · 进入店铺 ↗</a>
+        <Link className="detail-store" to={storePath(product.store.store_id, buyerContextPath(params.get('return_to')))}>{product.store.name} · 进入店铺</Link>
         <h1>{product.name}</h1><p className="detail-description">{product.description}</p>
         <div className="detail-price-box"><span>{sku ? '当前规格价格' : '参考展示价'}</span>
           <p className="detail-price"><span>¥</span>{formatMoney(sku?.price ?? product.display_price)}</p>
@@ -101,7 +102,7 @@ export function ProductDetail() {
   const location = useLocation(), navigate = useNavigate();
   const [params] = useSearchParams();
   const returnPath = productReturnPath(params.get('return_to'));
-  const returnToCart = returnPath === '/cart' || returnPath.startsWith('/cart?');
+  const returnToCart = returnPath === '/cart' || returnPath.startsWith('/cart?'), returnToStore = returnPath.startsWith('/stores/');
   const keyword = readQuery(new URLSearchParams(buyerContextPath(returnPath).split('?')[1])).keyword;
   const [state, setState] = useState<{ id: string; status: 'loading' | 'ready' | 'error'; product?: ProductView; message?: string; notFound?: boolean }>({ id: productId, status: 'loading' });
   const [reload, setReload] = useState(0);
@@ -121,9 +122,9 @@ export function ProductDetail() {
     <div className="preview-note"><span>商品详情预览 · {usesMockData ? '模拟数据' : 'API 数据'}</span><a href={prototypeUrl('buyer')} target="_blank" rel="noopener noreferrer">查看完整交互原型 ↗</a></div>
     <Header keyword={keyword} onSearch={value => navigate(`/buyer?${queryParams({ ...readQuery(new URLSearchParams()), keyword: value })}`)} />
     <main className={`catalog-page detail-page ${collapsed ? 'rail-collapsed' : ''}`} id="main-content">
-      <nav className="detail-breadcrumb" aria-label="商品导航"><button className="text-button" onClick={() => (location.state?.fromBuyer || location.state?.fromCart) ? navigate(-1) : navigate(returnPath, { state: { restoreCatalog: true } })}>‹ {returnToCart ? '返回购物车' : '返回浏览位置'}</button><span>商品详情</span></nav>
+      <nav className="detail-breadcrumb" aria-label="商品导航"><button className="text-button" onClick={() => (location.state?.fromBuyer || location.state?.fromCart || location.state?.fromStore) ? navigate(-1) : navigate(returnPath, { state: { restoreCatalog: true } })}>‹ {returnToCart ? '返回购物车' : returnToStore ? '返回店铺' : '返回浏览位置'}</button><span>商品详情</span></nav>
       {status === 'loading' && <div className="detail-loading" role="status">正在加载商品详情…</div>}
-      {status === 'error' && <section className="empty-state" role="alert"><h1>{state.notFound ? '商品不存在或暂不可见' : '暂时无法加载商品'}</h1><p>{state.message}</p>{!state.notFound && <button className="button" onClick={() => setReload(value => value + 1)}>重新加载</button>}<Link className="button" to={returnPath}>{returnToCart ? '返回购物车' : '返回商城'}</Link></section>}
+      {status === 'error' && <section className="empty-state" role="alert"><h1>{state.notFound ? '商品不存在或暂不可见' : '暂时无法加载商品'}</h1><p>{state.message}</p>{!state.notFound && <button className="button" onClick={() => setReload(value => value + 1)}>重新加载</button>}<Link className="button" to={returnPath}>{returnToCart ? '返回购物车' : returnToStore ? '返回店铺' : '返回商城'}</Link></section>}
       {status === 'ready' && state.product && (state.product.view_status === 'OFF_SALE' ? <OffSale key={productId} product={state.product} /> : <ProductContent key={productId} product={state.product} />)}
       <p className="catalog-note">商品、店铺与交易资料均为虚构演示数据。</p>
     </main>

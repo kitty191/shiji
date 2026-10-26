@@ -1,10 +1,12 @@
-import type { CatalogQuery, Category, ProductPage, ProductView, RecommendationResult } from '../types/catalog.ts';
+import type { CatalogQuery, Category, ProductPage, ProductView, PublicStore, RecommendationResult } from '../types/catalog.ts';
 import type { Result } from '../types/result.ts';
 import { ApiError, get } from './client.ts';
 import { queryParams, selectProducts } from '../lib/catalog.ts';
 import { categories, products } from '../mocks/catalog.ts';
 import { mockProductView } from '../mocks/product.ts';
 import { mockCommerce } from '../mocks/session.ts';
+import { publicStores } from '../mocks/store.ts';
+import { selectStoreProducts, storeProductsParams } from '../lib/store.ts';
 function mockCards() {
   const current = mockCommerce.catalog();
   return products.map(card => { const product = current.find(p => p.product_id === card.product_id); return product?.view_status === 'ON_SALE' ? { ...card, display_price: product.display_price, min_price: product.min_price, max_price: product.max_price, stock_status: product.stock_status } : card; });
@@ -50,5 +52,29 @@ export async function getRecommendations(productId: string, signal?: AbortSignal
   const result = usesMockData ? await mockResult(sample, signal)
     : await get<RecommendationResult>(`/products/${encodeURIComponent(productId)}/recommendations`, new URLSearchParams({ limit: '4' }), signal);
   if (result.code !== 'SUCCESS') throw new ApiError(result.code, result.message);
+  return result.data;
+}
+
+export async function getStore(storeId: string, signal?: AbortSignal): Promise<PublicStore> {
+  if (!storeId || storeId === '.' || storeId === '..') throw new ApiError('NOT_FOUND', '没有找到这家店铺。');
+  const result = usesMockData ? await mockResult(publicStores.find(store => store.store_id === storeId) ?? null, signal)
+    : await get<PublicStore>(`/stores/${encodeURIComponent(storeId)}`, undefined, signal);
+  if (result.code !== 'SUCCESS') throw new ApiError(result.code, result.message);
+  const store = result.data;
+  if (!store) throw new ApiError('NOT_FOUND', '没有找到这家店铺。');
+  if (store.store_id !== storeId || typeof store.name !== 'string' || typeof store.description !== 'string' ||
+    !(store.logo_url === null || typeof store.logo_url === 'string') || typeof store.main_category_id !== 'string') {
+    throw new ApiError('SERVICE_UNAVAILABLE', '店铺资料暂时不可用，请稍后重试。');
+  }
+  return store;
+}
+
+export async function getStoreProducts(storeId: string, signal?: AbortSignal): Promise<ProductPage> {
+  const result = usesMockData ? await mockResult(selectStoreProducts(mockCards(), storeId), signal)
+    : await get<ProductPage>('/products', storeProductsParams(storeId), signal);
+  if (result.code !== 'SUCCESS') throw new ApiError(result.code, result.message);
+  if (!result.data || !Array.isArray(result.data.items) || result.data.items.some(item => item?.store?.store_id !== storeId)) {
+    throw new ApiError('SERVICE_UNAVAILABLE', '本店商品暂时不可用，请稍后重试。');
+  }
   return result.data;
 }

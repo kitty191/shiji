@@ -1,5 +1,6 @@
 // Public catalog contracts follow docs/openapi.json; money is integer cents.
 export interface StoreBrief { store_id: string; name: string }
+export interface PublicStore extends StoreBrief { logo_url: string | null; description: string; main_category_id: string }
 export interface Category { category_id: string; parent_id: string | null; name: string; sort_order: number }
 export interface ProductCard {
   product_id: string; name: string; category_id: string; cover_image: string | null;
