@@ -67,6 +67,7 @@ export function BuyerHome() {
     } catch (reason) { setPriceError(reason instanceof Error ? reason.message : '请检查价格。'); }
   }
   const active = !!query.keyword || !!query.category_id || query.min_price !== undefined || query.max_price !== undefined;
+  const outOfRange = !!page && query.page > 1 && page.total > 0 && !page.items.length;
   const sorts: [Sort, string][] = [['default', '综合'], ['price_asc', '价格 ↑'], ['price_desc', '价格 ↓'], ['newest', '最新上架']];
   return <div className="site-shell">
     <div className="preview-note"><span>买家商城预览 · {usesMockData ? '模拟数据' : 'API 数据'}</span><a href={prototypeUrl('buyer')} target="_blank" rel="noopener noreferrer">查看完整交互原型 ↗</a></div>
@@ -94,7 +95,7 @@ export function BuyerHome() {
       <section aria-label="商品列表" aria-busy={status === 'loading'}>
         {status === 'loading' && <div className="product-grid skeleton-grid" role="status" aria-label="正在加载商品">{Array.from({ length: 8 }, (_, index) => <div className="skeleton-card" key={index}><div /><span /><span /></div>)}</div>}
         {status === 'error' && <div className="empty-state" role="alert"><h2>{feedExpired ? '商品列表已更新' : '暂时没有加载成功'}</h2><p>{error}</p><button className="button" onClick={retryProducts}>{feedExpired ? '刷新商品列表' : '重新加载'}</button></div>}
-        {status === 'ready' && page && <>{page.items.length ? <div className="product-grid">{page.items.map(product => <ProductCard key={product.product_id} product={product} />)}</div> : <div className="empty-state" role="status"><h2>暂时没有符合条件的商品</h2><p>试试其他关键词，或放宽筛选条件。</p><button className="button" onClick={() => setParams(new URLSearchParams())}>清空筛选</button></div>}
+        {status === 'ready' && page && <>{page.items.length ? <div className="product-grid">{page.items.map(product => <ProductCard key={product.product_id} product={product} />)}</div> : <div className="empty-state" role="status"><h2>{outOfRange ? '当前页没有商品' : '暂时没有符合条件的商品'}</h2><p>{outOfRange ? '已有商品，请返回第一页继续浏览。' : '试试其他关键词，或放宽筛选条件。'}</p>{outOfRange ? <button className="button" onClick={() => update({ page: 1 })}>返回第一页</button> : <button className="button" onClick={() => setParams(new URLSearchParams())}>清空筛选</button>}</div>}
           {(query.page > 1 || page.has_more) && <nav className="pagination" aria-label="商品分页"><button className="button" disabled={query.page === 1} onClick={() => update({ page: query.page - 1 })}>上一页</button><span>第 {query.page} 页</span><button className="button" disabled={!page.has_more} onClick={() => update({ page: query.page + 1 })}>下一页</button></nav>}
         </>}
       </section>

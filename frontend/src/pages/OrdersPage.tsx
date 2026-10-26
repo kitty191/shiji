@@ -25,6 +25,7 @@ export function OrdersPage() {
   }
   function search(event: FormEvent) { event.preventDefault(); update({ order_no: draft.trim() }); }
   const page = result.key === key ? result.page : undefined, loading = result.key !== key || result.status === 'loading';
+  const outOfRange = !!page && query.page > 1 && page.total > 0 && !page.items.length;
   return <BuyerWorkflow title="我的订单" subtitle="按店铺查看订单与当前进度。">
     {commerceAvailable && <section className="order-tools" aria-label="订单筛选"><nav className="sort-row" aria-label="订单状态">
       {([['', '全部'], ...Object.entries(orderStatuses)] as [OrderStatus | '', string][]).map(([status, label]) => <button key={status} aria-pressed={query.status === status} onClick={() => update({ status })}>{label}</button>)}
@@ -40,7 +41,7 @@ export function OrdersPage() {
           <TransactionLines items={order.items} />
           <footer><span>订单合计 <strong>¥{formatMoney(order.total_amount)}</strong></span><Link className="button" to={`/orders/${encodeURIComponent(order.order_id)}?${new URLSearchParams({ return_to: `${location.pathname}${location.search}` })}`}>查看订单详情<span className="sr-only">：{order.order_no}</span></Link></footer>
         </article>)}
-      </> : <div className="empty-state"><h2>{query.status || query.order_no ? '没有符合条件的订单' : '还没有订单'}</h2><p>{query.status || query.order_no ? '试试其他状态或订单号。' : '挑选喜欢的商品后，前往结算提交订单。'}</p><Link className="button" to="/buyer">去逛逛</Link></div>)}
+      </> : <div className="empty-state"><h2>{outOfRange ? '当前页没有订单' : query.status || query.order_no ? '没有符合条件的订单' : '还没有订单'}</h2><p>{outOfRange ? '已有订单，请返回第一页继续查看。' : query.status || query.order_no ? '试试其他状态或订单号。' : '挑选喜欢的商品后，前往结算提交订单。'}</p>{outOfRange ? <button className="button" onClick={() => update({ page: 1 })}>返回第一页</button> : <Link className="button" to="/buyer">去逛逛</Link>}</div>)}
       {page && (query.page > 1 || page.has_more) && <nav className="pagination" aria-label="订单分页"><button className="button" disabled={query.page === 1 || loading} onClick={() => update({ page: query.page - 1 })}>上一页</button><span>第 {query.page} 页</span><button className="button" disabled={!page.has_more || loading} onClick={() => update({ page: query.page + 1 })}>下一页</button></nav>}
     </section>
   </BuyerWorkflow>;
