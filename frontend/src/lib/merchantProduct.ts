@@ -25,3 +25,15 @@ export function isMerchantProduct(value: unknown): value is MerchantProductSumma
     (p.display_price === null || integer(p.display_price)) && (p.display_price_override === null || integer(p.display_price_override)) &&
     integer(p.sku_count) && integer(p.available_stock_total) && (p.published_at === null || date(p.published_at)) && date(p.updated_at) && typeof p.edit_token === 'string';
 }
+
+export function merchantProductsReturnPath(value: string | null): string {
+  if (value === '/merchant/products') return value;
+  if (value?.startsWith('/merchant/products?') && !value.includes('#')) {
+    const params = merchantProductParams(readMerchantProductQuery(new URLSearchParams(value.slice('/merchant/products?'.length))));
+    return `/merchant/products${params.size ? `?${params}` : ''}`;
+  }
+  return '/merchant/products';
+}
+export function merchantDraftPath(id: string, returnTo: string): string {
+  return `/merchant/products/${encodeURIComponent(id)}/edit?${new URLSearchParams({ return_to: merchantProductsReturnPath(returnTo) })}`;
+}

@@ -9,3 +9,15 @@ export interface MerchantProductSummary {
 export interface MerchantProductQuery { keyword: string; sale_status: SaleStatus | ''; page: number; page_size: number }
 export interface MerchantProductPage { items: MerchantProductSummary[]; page: number; page_size: number; total: number; has_more: boolean }
 export interface MerchantProductsGateway { products(query: MerchantProductQuery): Promise<MerchantProductPage> }
+
+export interface DraftFields { title: string | null; category_id: string | null; description: string | null; display_price_override: number | null }
+export interface MerchantDraft extends MerchantProductSummary, DraftFields {
+  sale_status: 'DRAFT'; published_at: null; created_at: string; attributes: { name: string; value: string }[];
+  platform_restriction_reason: null; images: never[]; dimensions: never[]; historical_dimensions: never[]; skus: never[];
+}
+export interface DraftSaveRequest { edit_token: string; fields: Partial<DraftFields> }
+export interface MerchantDraftGateway {
+  create(key: string): Promise<MerchantDraft>;
+  draft(id: string): Promise<MerchantDraft>;
+  save(id: string, request: DraftSaveRequest, key: string): Promise<{ product: MerchantDraft; id_map: never[] }>;
+}

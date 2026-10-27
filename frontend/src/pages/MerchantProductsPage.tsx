@@ -1,13 +1,14 @@
 import { useEffect, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
-import { Link, useSearchParams } from 'react-router-dom';
+import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { merchantAvailable, merchantStoreName } from '../api/merchant.ts';
-import { merchantProductsGateway } from '../api/merchantProduct.ts';
+import { merchantProductsGateway, merchantDraftStore } from '../api/merchantProduct.ts';
+import { DraftFeedback, useMerchantDraftGuard, useMerchantDraftState } from '../components/MerchantDraftState.tsx';
 import { BuyerWorkflow } from '../components/BuyerWorkflow.tsx';
 import { useCommerce } from '../components/CommerceContext.ts';
 import { CommerceError, formatDate } from '../lib/commerce.ts';
 import { formatMoney } from '../lib/catalog.ts';
-import { merchantProductParams, merchantProductStatuses, readMerchantProductQuery } from '../lib/merchantProduct.ts';
+import { merchantDraftPath, merchantProductParams, merchantProductStatuses, readMerchantProductQuery } from '../lib/merchantProduct.ts';
 import type { MerchantProductPage, MerchantProductQuery } from '../types/merchantProduct.ts';
 
 function Cover({ src }: { src: string | null }) {
@@ -15,6 +16,8 @@ function Cover({ src }: { src: string | null }) {
   return <span className="merchant-product-cover">{src && !failed ? <img src={src} alt="" width="56" height="56" onError={() => setFailed(true)} /> : <span>暂无图片</span>}</span>;
 }
 export function MerchantProductsPage() {
+  const draftState = useMerchantDraftState(), guard = useMerchantDraftGuard(), navigate = useNavigate(), location = useLocation(), alive = useRef(true);
+  useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
   const [params, setParams] = useSearchParams(), { state } = useCommerce();
   const query = readMerchantProductQuery(params), key = JSON.stringify(query);
   const [keyword, setKeyword] = useState(query.keyword), [reload, setReload] = useState(0);
@@ -27,7 +30,7 @@ export function MerchantProductsPage() {
     void merchantProductsGateway.products(JSON.parse(key)).then(page => { if (current) setResult({ key, status: 'ready', page }); })
       .catch(error => { if (current) setResult({ key, status: 'error', error: error instanceof Error ? error.message : '本店商品读取失败。', forbidden: error instanceof CommerceError && error.code === 'FORBIDDEN' }); });
     return () => { current = false; };
-  }, [key, reload, state.revision]);
+  }, [key, reload, state.revision, draftState.revision]);
   useEffect(() => {
     if (result.key === key && result.status !== 'loading' && focusAfterRead.current === key) {
       focusAfterRead.current = null; (result.status === 'error' ? retry.current ?? heading.current : heading.current)?.focus({ preventScroll: true });
@@ -44,6 +47,8 @@ export function MerchantProductsPage() {
   const loading = result.key !== key || result.status === 'loading', page = result.key === key && result.status === 'ready' ? result.page : undefined;
   const filtered = !!query.keyword || !!query.sale_status, outOfRange = !!page && page.total > 0 && !page.items.length;
   return <BuyerWorkflow title="商品管理" subtitle={merchantAvailable ? `${merchantStoreName} · 查看本店商品与可售库存。` : '查看本店商品与可售库存。'}>
+    {guard.dialog}<DraftFeedback />
+    {merchantAvailable && <div className="address-actions"><button className="button button--primary" disabled={draftState.busy || !!draftState.pending} onClick={() => { void merchantDraftStore.create().then(draft => { if (alive.current && !guard.isBlocked()) navigate(merchantDraftPath(draft.product_id, `${location.pathname}${location.search}`)); }).catch(() => undefined); }}>新增商品草稿</button></div>}
     <nav className="merchant-section-nav" aria-label="商家管理导航"><Link to="/merchant/products" aria-current="page">店铺商品</Link><Link to="/merchant/orders">店铺订单</Link></nav>
     {merchantAvailable && <><p className="workflow-muted">当前为固定演示店铺。展示价用于商品展示，交易按具体规格计价；可售库存已扣除模拟订单占用。</p>
       <section className="order-tools" aria-label="店铺商品筛选"><nav className="sort-row" aria-label="店铺商品状态">
@@ -56,7 +61,7 @@ export function MerchantProductsPage() {
       {result.key === key && result.status === 'error' && <div className="cart-error" role="alert"><h2 ref={heading} tabIndex={-1}>{!merchantAvailable ? '商家商品接口暂不可用' : result.forbidden ? '没有店铺商品查看权限' : '暂时无法读取本店商品'}</h2><p>{result.error}</p>{merchantAvailable && <button ref={retry} className="button" onClick={refresh}>重新读取本店商品</button>}</div>}
       {page && <><h2 ref={heading} tabIndex={-1} className="merchant-products-count">共 {page.total} 件本店商品</h2>
         {page.items.length ? <div className="merchant-table-scroll" tabIndex={0} role="region" aria-label="本店商品表格，可横向滚动"><table className="merchant-product-table"><caption className="sr-only">本店商品状态、展示价及可售库存</caption><thead><tr><th scope="col">商品</th><th scope="col">状态</th><th scope="col">展示价</th><th scope="col">规格与库存</th><th scope="col">更新时间</th></tr></thead><tbody>{page.items.map(product => <tr key={product.product_id}>
-          <th scope="row"><div className="merchant-product-identity"><Cover key={product.cover_image} src={product.cover_image} /><div><strong>{product.title?.trim() || '未命名商品'}</strong><small>编号 {product.product_id}</small></div></div></th>
+          <th scope="row"><div className="merchant-product-identity"><Cover key={product.cover_image} src={product.cover_image} /><div><strong>{product.title?.trim() || '未命名商品'}</strong><small>编号 {product.product_id}</small>{product.sale_status === 'DRAFT' && <Link className="text-button" to={merchantDraftPath(product.product_id, `${location.pathname}${location.search}`)}>编辑草稿<span className="sr-only">：{product.title || '未命名商品'}</span></Link>}</div></div></th>
           <td><span>{merchantProductStatuses[product.sale_status]}</span>{product.platform_status === 'RESTRICTED' && <small className="merchant-restriction">平台限制售卖</small>}</td>
           <td>{product.display_price === null ? <span className="workflow-muted">待完善</span> : <>¥{formatMoney(product.display_price)}</>}</td>
           <td><span>{product.sku_count} 个规格</span><small>可售 {product.available_stock_total} 件</small>{product.sku_count > 0 && product.available_stock_total === 0 && <small className="merchant-restriction">已售罄</small>}</td>
