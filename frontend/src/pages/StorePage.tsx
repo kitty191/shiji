@@ -11,6 +11,10 @@ import { buyerReturnPath, storePath } from '../lib/product.ts';
 import { useBuyerPosition } from '../lib/browsePosition.ts';
 import type { CatalogQuery, Category, ProductPage, PublicStore } from '../types/catalog.ts';
 
+function unavailable(error: unknown): boolean {
+  return error instanceof ApiError && ['NOT_FOUND', 'STORE_DISABLED'].includes(error.code);
+}
+
 function StoreLogo({ store }: { store: PublicStore }) {
   const [failed, setFailed] = useState(false);
   return <span className="store-symbol" aria-hidden="true">{store.logo_url && !failed
@@ -23,18 +27,20 @@ export function StorePage() {
   const key = params.toString(), query = readQuery(params), requestKey = JSON.stringify([storeId, key]);
   const returnPath = buyerReturnPath(params.get('return_to')), [collapsed, setCollapsed] = useRailState();
   const [storeReload, setStoreReload] = useState(0), [reload, setReload] = useState(0), [categories, setCategories] = useState<Category[]>([]);
-  const heading = useRef<HTMLHeadingElement>(null), retry = useRef<HTMLButtonElement>(null), focusAfterStoreRead = useRef(false);
-  const listHeading = useRef<HTMLHeadingElement>(null), listRetry = useRef<HTMLButtonElement>(null), focusAfterListRead = useRef(false);
+  const heading = useRef<HTMLHeadingElement>(null), retry = useRef<HTMLButtonElement>(null), focusAfterStoreRead = useRef<string | null>(null);
+  const listHeading = useRef<HTMLHeadingElement>(null), listRetry = useRef<HTMLButtonElement>(null), focusAfterListRead = useRef<string | null>(null);
   const attachedFeed = useRef<{ key: string; reload: number } | null>(null);
   const [profile, setProfile] = useState<{ id: string; status: 'loading' | 'ready' | 'error'; store?: PublicStore; error?: string; missing?: boolean }>({ id: storeId, status: 'loading' });
   const [result, setResult] = useState<{ key: string; status: 'loading' | 'ready' | 'error'; page?: ProductPage; error?: string; feedExpired?: boolean }>({ key: '', status: 'loading' });
   const storeReady = profile.id === storeId && profile.status === 'ready';
   const ready = storeReady && result.key === requestKey && result.status === 'ready';
   useBuyerPosition(ready);
+  useEffect(() => { focusAfterStoreRead.current = null; focusAfterListRead.current = null; }, [storeId]);
+  useEffect(() => { if (focusAfterListRead.current !== requestKey) focusAfterListRead.current = null; }, [requestKey]);
   useEffect(() => {
     const controller = new AbortController(); setProfile({ id: storeId, status: 'loading' });
     void getStore(storeId, controller.signal).then(store => { if (!controller.signal.aborted) setProfile({ id: storeId, status: 'ready', store }); })
-      .catch(error => { if (!controller.signal.aborted) setProfile({ id: storeId, status: 'error', error: error instanceof Error ? error.message : '店铺加载失败，请稍后重试。', missing: error instanceof ApiError && ['NOT_FOUND', 'STORE_DISABLED'].includes(error.code) }); });
+      .catch(error => { if (!controller.signal.aborted) setProfile({ id: storeId, status: 'error', error: error instanceof Error ? error.message : '店铺加载失败，请稍后重试。', missing: unavailable(error) }); });
     return () => controller.abort();
   }, [storeId, storeReload]);
   useEffect(() => {
@@ -49,33 +55,51 @@ export function StorePage() {
         const nextPath = storePath(storeId, returnPath, { ...requestQuery, feed_token: page.feed_token || undefined });
         const nextParams = new URLSearchParams(nextPath.split('?')[1]);
         const nextKey = nextParams.toString(), nextRequestKey = JSON.stringify([storeId, nextKey]);
+        if (focusAfterListRead.current === requestKey) focusAfterListRead.current = nextRequestKey;
         setCategories(nextCategories); setResult({ key: nextRequestKey, status: 'ready', page });
         if (nextKey !== key) {
           attachedFeed.current = { key: nextRequestKey, reload };
           setParams(nextParams, { replace: true, preventScrollReset: true, flushSync: true });
         }
-      }).catch(error => {
-        if (!controller.signal.aborted) setResult({ key: requestKey, status: 'error', error: error instanceof Error ? error.message : '本店商品加载失败，请稍后重试。', feedExpired: error instanceof ApiError && error.code === 'FEED_EXPIRED' });
+      }).catch(async error => {
+        if (controller.signal.aborted) return;
+        if (unavailable(error)) {
+          try {
+            const latest = await getStore(storeId, controller.signal);
+            if (controller.signal.aborted) return;
+            setProfile({ id: storeId, status: 'ready', store: latest });
+          } catch (profileError) {
+            if (controller.signal.aborted) return;
+            if (focusAfterListRead.current === requestKey) focusAfterStoreRead.current = storeId;
+            focusAfterListRead.current = null;
+            setProfile({ id: storeId, status: 'error', error: profileError instanceof Error ? profileError.message : '店铺加载失败，请稍后重试。', missing: unavailable(profileError) });
+            return;
+          }
+        }
+        setResult({ key: requestKey, status: 'error', error: error instanceof Error ? error.message : '本店商品加载失败，请稍后重试。', feedExpired: error instanceof ApiError && error.code === 'FEED_EXPIRED' });
       });
     return () => controller.abort();
   }, [storeId, key, reload, storeReady]);
   useEffect(() => {
-    if (profile.id === storeId && profile.status !== 'loading' && focusAfterStoreRead.current) {
-      focusAfterStoreRead.current = false; (profile.status === 'error' ? retry.current ?? heading.current : heading.current)?.focus({ preventScroll: true });
+    if (profile.id === storeId && profile.status !== 'loading' && focusAfterStoreRead.current === storeId) {
+      focusAfterStoreRead.current = null; (profile.status === 'error' ? retry.current ?? heading.current : heading.current)?.focus({ preventScroll: true });
     }
   }, [profile, storeId]);
   useEffect(() => {
-    if (result.key === requestKey && result.status !== 'loading' && focusAfterListRead.current) {
-      focusAfterListRead.current = false; (result.status === 'error' ? listRetry.current ?? listHeading.current : listHeading.current)?.focus({ preventScroll: true });
+    if (result.key === requestKey && result.status !== 'loading' && focusAfterListRead.current === requestKey) {
+      focusAfterListRead.current = null; (result.status === 'error' ? listRetry.current ?? listHeading.current : listHeading.current)?.focus({ preventScroll: true });
     }
   }, [result, requestKey]);
-  function update(patch: Partial<Omit<CatalogQuery, 'feed_token'>>) { navigate(storePath(storeId, returnPath, changeQuery(query, patch)), { flushSync: true }); }
-  function clear() { navigate(storePath(storeId, returnPath), { flushSync: true }); }
+  function update(patch: Partial<Omit<CatalogQuery, 'feed_token'>>) { focusAfterListRead.current = null; navigate(storePath(storeId, returnPath, changeQuery(query, patch)), { flushSync: true }); }
+  function clear() { focusAfterListRead.current = null; navigate(storePath(storeId, returnPath), { flushSync: true }); }
   function retryProducts() {
-    focusAfterListRead.current = true;
+    focusAfterListRead.current = requestKey;
     if (result.feedExpired) {
       const target = storePath(storeId, returnPath, { ...query, page: 1, feed_token: undefined });
-      if (target !== `${location.pathname}${location.search}`) { navigate(target); return; }
+      if (target !== `${location.pathname}${location.search}`) {
+        focusAfterListRead.current = JSON.stringify([storeId, new URLSearchParams(target.split('?')[1]).toString()]);
+        navigate(target, { flushSync: true }); return;
+      }
     }
     setReload(value => value + 1);
   }
@@ -89,7 +113,7 @@ export function StorePage() {
     <main id="main-content" className={`catalog-page store-page ${collapsed ? 'rail-collapsed' : ''}`}>
       <nav className="detail-breadcrumb" aria-label="店铺导航"><Link to={returnPath} state={{ restoreCatalog: true }}>‹ 返回商城</Link><span>店铺主页</span></nav>
       {status === 'loading' && <div className="detail-loading" role="status">正在加载店铺…</div>}
-      {status === 'error' && <section className="empty-state" role="alert"><h1 ref={heading} tabIndex={-1}>{profile.missing ? '店铺不存在或暂不可见' : '暂时无法加载店铺'}</h1><p>{profile.error}</p>{!profile.missing && <button ref={retry} className="button" onClick={() => { focusAfterStoreRead.current = true; setStoreReload(value => value + 1); }}>重新加载店铺</button>}<Link className="button" to={returnPath}>返回商城</Link></section>}
+      {status === 'error' && <section className="empty-state" role="alert"><h1 ref={heading} tabIndex={-1}>{profile.missing ? '店铺不存在或暂不可见' : '暂时无法加载店铺'}</h1><p>{profile.error}</p>{!profile.missing && <button ref={retry} className="button" onClick={() => { focusAfterStoreRead.current = storeId; setStoreReload(value => value + 1); }}>重新加载店铺</button>}<Link className="button" to={returnPath}>返回商城</Link></section>}
       {store && <>
         <section className="store-banner" aria-label="店铺信息"><StoreLogo key={`${store.store_id}|${store.logo_url}`} store={store} /><div className="store-copy"><h1 ref={heading} tabIndex={-1}>{store.name}</h1><p>{store.description || '发现实用的日常好物。'}</p></div></section>
         <CatalogFilters query={query} categories={categories} onChange={update} onClear={clear} />

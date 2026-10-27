@@ -7,6 +7,7 @@ import { mockProductView } from '../mocks/product.ts';
 import { mockCommerce } from '../mocks/session.ts';
 import { publicStores } from '../mocks/store.ts';
 import { selectStoreProducts, storeProductsParams } from '../lib/store.ts';
+import { isCategoryResult, isPublicStore, isStoreProductPage } from '../lib/catalogValidation.ts';
 function mockCards() {
   const current = mockCommerce.catalog();
   return products.map(card => { const product = current.find(p => p.product_id === card.product_id); return product?.view_status === 'ON_SALE' ? { ...card, display_price: product.display_price, min_price: product.min_price, max_price: product.max_price, stock_status: product.stock_status } : card; });
@@ -24,6 +25,7 @@ function mockResult<T>(data: T, signal?: AbortSignal): Promise<Result<T>> {
 export async function getCategories(signal?: AbortSignal): Promise<Category[]> {
   const result = usesMockData ? await mockResult({ items: categories }, signal) : await get<{ items: Category[] }>('/categories', undefined, signal);
   if (result.code !== 'SUCCESS') throw new ApiError(result.code, result.message);
+  if (!isCategoryResult(result.data)) throw new ApiError('SERVICE_UNAVAILABLE', '商品分类暂时不可用，请稍后重试。');
   return result.data.items;
 }
 export async function getProducts(query: CatalogQuery, signal?: AbortSignal): Promise<ProductPage> {
@@ -62,8 +64,7 @@ export async function getStore(storeId: string, signal?: AbortSignal): Promise<P
   if (result.code !== 'SUCCESS') throw new ApiError(result.code, result.message);
   const store = result.data;
   if (!store) throw new ApiError('NOT_FOUND', '没有找到这家店铺。');
-  if (store.store_id !== storeId || typeof store.name !== 'string' || typeof store.description !== 'string' ||
-    !(store.logo_url === null || typeof store.logo_url === 'string') || typeof store.main_category_id !== 'string') {
+  if (!isPublicStore(store, storeId)) {
     throw new ApiError('SERVICE_UNAVAILABLE', '店铺资料暂时不可用，请稍后重试。');
   }
   return store;
@@ -73,7 +74,7 @@ export async function getStoreProducts(storeId: string, query: CatalogQuery, sig
   const result = usesMockData ? await mockResult(selectStoreProducts(mockCards(), storeId, query), signal)
     : await get<ProductPage>('/products', storeProductsParams(storeId, query), signal);
   if (result.code !== 'SUCCESS') throw new ApiError(result.code, result.message);
-  if (!result.data || !Array.isArray(result.data.items) || result.data.items.some(item => item?.store?.store_id !== storeId)) {
+  if (!isStoreProductPage(result.data, storeId, query)) {
     throw new ApiError('SERVICE_UNAVAILABLE', '本店商品暂时不可用，请稍后重试。');
   }
   return result.data;
