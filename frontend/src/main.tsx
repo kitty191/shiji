@@ -27,6 +27,7 @@ const router = createHashRouter([{
     { path: '/checkout', element: <CheckoutPage /> },
     { path: '/payments/:paymentId', element: <PaymentPage /> },
     { path: '/payments/:paymentId/result', element: <PaymentResultPage /> },
+    { path: '/merchant/products', lazy: async () => ({ Component: (await import('./pages/MerchantProductsPage.tsx')).MerchantProductsPage }), HydrateFallback: () => <main className="route-error" role="status">正在打开商品管理…</main> },
     { path: '/merchant/orders', element: <MerchantOrdersPage /> },
     { path: '/merchant/orders/:orderId', element: <MerchantOrderDetailPage /> },
     { path: '/orders', element: <OrdersPage /> },
