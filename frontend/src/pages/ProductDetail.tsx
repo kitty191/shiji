@@ -9,7 +9,7 @@ import { ProductCard } from '../components/ProductCard.tsx';
 import { useCart } from '../components/CartContext.ts';
 import { cartAvailable } from '../api/cart.ts';
 import { formatMoney, prototypeUrl, queryParams, readQuery } from '../lib/catalog.ts';
-import { buyerContextPath, productReturnPath, storePath, completeSku, galleryFrames, inStock, normalizeProductParams, productQuantity, quantityLimit, selectedSku, skuFrame, skuLabel } from '../lib/product.ts';
+import { buyerContextPath, productReturnPath, storeEntryPath, completeSku, galleryFrames, inStock, normalizeProductParams, productQuantity, quantityLimit, selectedSku, skuFrame, skuLabel } from '../lib/product.ts';
 import { checkoutPath } from '../lib/commerce.ts';
 import { commerceAvailable } from '../api/commerce.ts';
 import { useCommerce } from '../components/CommerceContext.ts';
@@ -31,7 +31,7 @@ function OffSale({ product }: { product: OffSaleView }) {
   return <>
     <section className="empty-state off-sale-state" aria-label="下架商品">
       <h1>商品已下架</h1><p>这件商品暂时无法购买，可以看看店里的其他好物。</p>
-      <Link className="button" to={storePath(product.store.store_id, buyerContextPath(params.get('return_to')))}>进入{product.store.name}</Link>
+      <Link className="button" to={storeEntryPath(product.store.store_id, params.get('return_to'))}>进入{product.store.name}</Link>
     </section>
     <section className="recommendations" aria-label="其他商品推荐"><h2>看看其他好物</h2>
       {status === 'loading' && <p role="status">正在加载推荐商品…</p>}
@@ -68,7 +68,7 @@ function ProductContent({ product }: { product: Product }) {
       <ProductGallery frames={frames} active={activeFrame} cover={product.cover_image} name={product.name}
         onChange={image_id => update({ image_id })} />
       <section className="detail-info" aria-label="商品资料">
-        <Link className="detail-store" to={storePath(product.store.store_id, buyerContextPath(params.get('return_to')))}>{product.store.name} · 进入店铺</Link>
+        <Link className="detail-store" to={storeEntryPath(product.store.store_id, params.get('return_to'))}>{product.store.name} · 进入店铺</Link>
         <h1>{product.name}</h1><p className="detail-description">{product.description}</p>
         <div className="detail-price-box"><span>{sku ? '当前规格价格' : '参考展示价'}</span>
           <p className="detail-price"><span>¥</span>{formatMoney(sku?.price ?? product.display_price)}</p>

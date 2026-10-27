@@ -2482,3 +2482,12 @@
         font-size: 13px
     }
 }
+
+
+@layer components {
+    .search-all {
+        flex-shrink: 0;
+        white-space: nowrap;
+        padding-inline: 12px
+    }
+}

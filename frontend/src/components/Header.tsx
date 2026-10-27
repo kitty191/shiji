@@ -5,7 +5,9 @@ import { Icon } from './Icon.tsx';
 import { prototypeUrl } from '../lib/catalog.ts';
 import { addressPath } from '../lib/address.ts';
 import { buyerContextPath } from '../lib/product.ts';
-export function Header({ keyword, onSearch }: { keyword: string; onSearch: (keyword: string) => void }) {
+export function Header({ keyword, onSearch, storeSearch }: {
+  keyword: string; onSearch: (keyword: string) => void; storeSearch?: { name?: string; onSearchAll: (keyword: string) => void };
+}) {
   const [draft, setDraft] = useState(keyword), [open, setOpen] = useState(false);
   const location = useLocation();
   const returnPath = location.pathname === '/buyer' ? `${location.pathname}${location.search}` : buyerContextPath(new URLSearchParams(location.search).get('return_to'));
@@ -34,9 +36,10 @@ export function Header({ keyword, onSearch }: { keyword: string; onSearch: (keyw
       </div>
     </div>
     <form className="search" role="search" onSubmit={submit}>
-      <label className="sr-only" htmlFor="search-keyword">搜索商品或店铺</label>
-      <input id="search-keyword" value={draft} maxLength={120} placeholder="搜索喜欢的商品或店铺" onChange={event => setDraft(event.target.value)} />
-      <button className="button button--primary" type="submit"><Icon name="search" />搜索</button>
+      <label className="sr-only" htmlFor="search-keyword">{storeSearch ? '搜索本店商品' : '搜索商品或店铺'}</label>
+      <input id="search-keyword" value={draft} maxLength={120} placeholder={storeSearch ? storeSearch.name ? `在${storeSearch.name}中搜索` : '搜索本店商品' : '搜索喜欢的商品或店铺'} onChange={event => setDraft(event.target.value)} />
+      <button className="button button--primary" type="submit"><Icon name="search" />{storeSearch ? '搜本店' : '搜索'}</button>
+      {storeSearch && <button className="text-button search-all" type="button" onClick={() => storeSearch.onSearchAll(draft.trim())}>搜全站</button>}
     </form>
   </header>;
 }

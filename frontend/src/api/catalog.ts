@@ -69,9 +69,9 @@ export async function getStore(storeId: string, signal?: AbortSignal): Promise<P
   return store;
 }
 
-export async function getStoreProducts(storeId: string, signal?: AbortSignal): Promise<ProductPage> {
-  const result = usesMockData ? await mockResult(selectStoreProducts(mockCards(), storeId), signal)
-    : await get<ProductPage>('/products', storeProductsParams(storeId), signal);
+export async function getStoreProducts(storeId: string, query: CatalogQuery, signal?: AbortSignal): Promise<ProductPage> {
+  const result = usesMockData ? await mockResult(selectStoreProducts(mockCards(), storeId, query), signal)
+    : await get<ProductPage>('/products', storeProductsParams(storeId, query), signal);
   if (result.code !== 'SUCCESS') throw new ApiError(result.code, result.message);
   if (!result.data || !Array.isArray(result.data.items) || result.data.items.some(item => item?.store?.store_id !== storeId)) {
     throw new ApiError('SERVICE_UNAVAILABLE', '本店商品暂时不可用，请稍后重试。');

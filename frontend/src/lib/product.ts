@@ -1,4 +1,5 @@
-import type { ProductDetail, ProductImage, PublicSku } from '../types/catalog.ts';
+import type { CatalogQuery, ProductDetail, ProductImage, PublicSku } from '../types/catalog.ts';
+import { queryParams, readQuery } from './catalog.ts';
 
 export function completeSku(product: ProductDetail, sku: PublicSku): boolean {
   return sku.spec_values.length === product.dimensions.length &&
@@ -61,9 +62,11 @@ export function buyerReturnPath(value: string | null): string {
   return value === '/buyer' || (value?.startsWith('/buyer?') && !value.includes('#')) ? value : '/buyer';
 }
 
-export function storePath(storeId: string, returnTo: string | null = '/buyer'): string {
+export function storePath(storeId: string, returnTo: string | null = '/buyer', query?: CatalogQuery): string {
   const base = `/stores/${encodeURIComponent(storeId)}`, buyer = buyerReturnPath(returnTo);
-  return buyer === '/buyer' ? base : `${base}?${new URLSearchParams({ return_to: buyer })}`;
+  const params = query ? queryParams(query) : new URLSearchParams();
+  if (buyer !== '/buyer') params.set('return_to', buyer);
+  return params.size ? `${base}?${params}` : base;
 }
 
 function normalizedStorePath(value: string | null): string | undefined {
@@ -73,7 +76,8 @@ function normalizedStorePath(value: string | null): string | undefined {
   try {
     const id = decodeURIComponent(match[1]);
     if (!id || id === '.' || id === '..') return;
-    return storePath(id, new URLSearchParams(match[2]).get('return_to'));
+    const params = new URLSearchParams(match[2]);
+    return storePath(id, params.get('return_to'), readQuery(params));
   }
   catch { return; }
 }
@@ -95,4 +99,10 @@ export function buyerContextPath(value: string | null): string {
   const path = productReturnPath(value);
   return path === '/cart' || path.startsWith('/cart?') || path.startsWith('/stores/')
     ? buyerReturnPath(new URLSearchParams(path.split('?')[1]).get('return_to')) : path;
+}
+
+// Re-entering the same store from a product keeps its existing browse query.
+export function storeEntryPath(storeId: string, returnTo: string | null): string {
+  const context = productReturnPath(returnTo);
+  return context.split('?')[0] === `/stores/${encodeURIComponent(storeId)}` ? context : storePath(storeId, buyerContextPath(context));
 }

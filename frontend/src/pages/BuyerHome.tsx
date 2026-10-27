@@ -1,12 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
-import type { FormEvent } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { getCategories, getProducts, usesMockData } from '../api/catalog.ts';
 import { ApiError } from '../api/client.ts';
-import type { CatalogQuery, Category, ProductPage, Sort } from '../types/catalog.ts';
-import { changeQuery, formatMoney, priceToCents, prototypeUrl, queryParams, readQuery } from '../lib/catalog.ts';
+import type { CatalogQuery, Category, ProductPage } from '../types/catalog.ts';
+import { changeQuery, prototypeUrl, queryParams, readQuery } from '../lib/catalog.ts';
 import { Header } from '../components/Header.tsx';
-import { Icon } from '../components/Icon.tsx';
+import { CatalogFilters } from '../components/CatalogFilters.tsx';
 import { ProductCard } from '../components/ProductCard.tsx';
 import { FloatingTools, useRailState } from '../components/FloatingTools.tsx';
 import { useBuyerPosition } from '../lib/browsePosition.ts';
@@ -14,16 +13,14 @@ import { useBuyerPosition } from '../lib/browsePosition.ts';
 export function BuyerHome() {
   const [params, setParams] = useSearchParams();
   const key = params.toString(), query = readQuery(params);
-  const priceKey = queryParams({ ...query, feed_token: undefined }).toString();
   const attachedFeed = useRef<{ key: string; reload: number } | null>(null);
   const [categories, setCategories] = useState<Category[]>([]), [page, setPage] = useState<ProductPage | null>(null);
   const [loadedKey, setLoadedKey] = useState<string | null>(null);
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading'), [error, setError] = useState('');
   const [feedExpired, setFeedExpired] = useState(false);
-  const [reload, setReload] = useState(0), [minimum, setMinimum] = useState(''), [maximum, setMaximum] = useState(''), [priceError, setPriceError] = useState('');
+  const [reload, setReload] = useState(0);
   const [collapsed, setCollapsed] = useRailState();
   useBuyerPosition(status === 'ready' && loadedKey === key);
-  useEffect(() => { setMinimum(query.min_price === undefined ? '' : String(query.min_price / 100)); setMaximum(query.max_price === undefined ? '' : String(query.max_price / 100)); setPriceError(''); }, [priceKey]);
   useEffect(() => {
     // Attaching the returned token to this history entry reuses the response just loaded.
     const attached = attachedFeed.current;
@@ -58,40 +55,13 @@ export function BuyerHome() {
     }
     setReload(value => value + 1);
   }
-  function applyPrice(event: FormEvent) {
-    event.preventDefault();
-    try {
-      const min_price = priceToCents(minimum), max_price = priceToCents(maximum);
-      if (min_price !== undefined && max_price !== undefined && min_price > max_price) throw new Error('最低价不能高于最高价。');
-      setPriceError(''); update({ min_price, max_price });
-    } catch (reason) { setPriceError(reason instanceof Error ? reason.message : '请检查价格。'); }
-  }
-  const active = !!query.keyword || !!query.category_id || query.min_price !== undefined || query.max_price !== undefined;
   const outOfRange = !!page && query.page > 1 && page.total > 0 && !page.items.length;
-  const sorts: [Sort, string][] = [['default', '综合'], ['price_asc', '价格 ↑'], ['price_desc', '价格 ↓'], ['newest', '最新上架']];
   return <div className="site-shell">
     <div className="preview-note"><span>买家商城预览 · {usesMockData ? '模拟数据' : 'API 数据'}</span><a href={prototypeUrl('buyer')} target="_blank" rel="noopener noreferrer">查看完整交互原型 ↗</a></div>
     <Header keyword={query.keyword} onSearch={keyword => update({ keyword })} />
     <main id="main-content" className={`catalog-page ${collapsed ? 'rail-collapsed' : ''}`}>
       <section className="hero"><h1>小预算，也能淘到好东西。</h1><p>数码配件 · 居家日用 · 户外小物</p></section>
-      <section className="catalog-tools" aria-label="筛选与排序">
-        <div className="filter-row">
-          <label className="category-picker"><span className="sr-only">商品分类</span><select aria-label="商品分类" value={query.category_id} onChange={event => update({ category_id: event.target.value })}><option value="">全部分类</option>{query.category_id && !categories.some(category => category.category_id === query.category_id) && <option value={query.category_id}>已选分类</option>}{categories.map(category => <option key={category.category_id} value={category.category_id}>{category.name}</option>)}</select><Icon name="chevron" /></label>
-          <form className="price-filter" onSubmit={applyPrice} aria-label="价格区间">
-            <label><span aria-hidden="true">¥</span><input aria-label="最低价，单位元" inputMode="decimal" value={minimum} maxLength={12} placeholder="最低价" onChange={event => setMinimum(event.target.value)} aria-describedby={priceError ? 'price-error' : undefined} /></label><span className="price-dash" aria-hidden="true">–</span>
-            <label><span aria-hidden="true">¥</span><input aria-label="最高价，单位元" inputMode="decimal" value={maximum} maxLength={12} placeholder="最高价" onChange={event => setMaximum(event.target.value)} aria-describedby={priceError ? 'price-error' : undefined} /></label>
-            <button className="button" type="submit">应用</button><button className="text-button" type="button" onClick={() => { setMinimum(''); setMaximum(''); setPriceError(''); update({ min_price: undefined, max_price: undefined }); }}>重置</button>
-          </form>
-        </div>
-        {priceError && <p id="price-error" className="field-error" role="alert">{priceError}</p>}
-        {active && <div className="filter-summary" aria-label="已应用的筛选条件">
-          {query.keyword && <button onClick={() => update({ keyword: '' })}>关键词：{query.keyword} <Icon name="close" /></button>}
-          {query.category_id && <button onClick={() => update({ category_id: '' })}>分类：{categories.find(category => category.category_id === query.category_id)?.name || '所选分类'} <Icon name="close" /></button>}
-          {(query.min_price !== undefined || query.max_price !== undefined) && <button onClick={() => update({ min_price: undefined, max_price: undefined })}>价格：{query.min_price === undefined ? '不限' : `¥${formatMoney(query.min_price)}`} – {query.max_price === undefined ? '不限' : `¥${formatMoney(query.max_price)}`} <Icon name="close" /></button>}
-          <button className="text-button" onClick={() => setParams(new URLSearchParams())}>清空条件</button>
-        </div>}
-        <nav className="sort-row" aria-label="商品排序">{sorts.map(([value, label]) => <button key={value} aria-pressed={query.sort === value} onClick={() => update({ sort: value })}>{label}</button>)}</nav>
-      </section>
+      <CatalogFilters query={query} categories={categories} onChange={update} onClear={() => setParams(new URLSearchParams())} />
       <section aria-label="商品列表" aria-busy={status === 'loading'}>
         {status === 'loading' && <div className="product-grid skeleton-grid" role="status" aria-label="正在加载商品">{Array.from({ length: 8 }, (_, index) => <div className="skeleton-card" key={index}><div /><span /><span /></div>)}</div>}
         {status === 'error' && <div className="empty-state" role="alert"><h2>{feedExpired ? '商品列表已更新' : '暂时没有加载成功'}</h2><p>{error}</p><button className="button" onClick={retryProducts}>{feedExpired ? '刷新商品列表' : '重新加载'}</button></div>}
