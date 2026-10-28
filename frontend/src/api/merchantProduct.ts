@@ -10,23 +10,42 @@ import type { ProductDetail } from '../types/catalog.ts';
 import type { MerchantDraftGateway, MerchantProductsGateway } from '../types/merchantProduct.ts';
 
 const draftKey = 'shiji:mock-merchant-products:store_home:v1';
-const drafts = new MockMerchantDrafts({ store: () => mockMerchantStore, assets: () => productMediaAssets, categories: () => categories,
-  load: () => localStorage.getItem(draftKey), save: data => localStorage.setItem(draftKey, data) });
+const drafts = new MockMerchantDrafts({
+  store: () => mockMerchantStore,
+  assets: () => productMediaAssets,
+  categories: () => categories,
+  load: () => localStorage.getItem(draftKey),
+  save: (data) => localStorage.setItem(draftKey, data),
+});
 async function draftAccess<T>(run: () => T): Promise<T> {
-  if (!merchantAvailable) throw new CommerceError('SERVICE_UNAVAILABLE', '商家商品接口暂不可用，需配合店铺认证接入。');
-  await new Promise<void>(resolve => setTimeout(resolve, 180)); return run();
+  if (!merchantAvailable)
+    throw new CommerceError('SERVICE_UNAVAILABLE', '商家商品接口暂不可用，需配合店铺认证接入。');
+  await new Promise<void>((resolve) => setTimeout(resolve, 180));
+  return run();
 }
-export const merchantMediaGateway = { assets: () => draftAccess(() => readProductMedia(mockMerchantStore)) };
+export const merchantMediaGateway = {
+  assets: () => draftAccess(() => readProductMedia(mockMerchantStore)),
+};
 export const merchantDraftGateway: MerchantDraftGateway = {
-  create: key => draftAccess(() => drafts.create(key)), draft: id => draftAccess(() => drafts.draft(id)), save: (id, request, key) => draftAccess(() => drafts.save(id, request, key)),
+  create: (key) => draftAccess(() => drafts.create(key)),
+  draft: (id) => draftAccess(() => drafts.draft(id)),
+  save: (id, request, key) => draftAccess(() => drafts.save(id, request, key)),
 };
 export const merchantDraftStore = new MerchantDraftStore(merchantDraftGateway);
-const mock = new MockMerchantProducts({ store: () => mockMerchantStore,
-  products: () => [...merchantCatalogSummaries(mockCommerce.catalog().filter((p): p is ProductDetail => p.view_status === 'ON_SALE')), ...drafts.summaries()] });
+const mock = new MockMerchantProducts({
+  store: () => mockMerchantStore,
+  products: () => [
+    ...merchantCatalogSummaries(
+      mockCommerce.catalog().filter((p): p is ProductDetail => p.view_status === 'ON_SALE'),
+    ),
+    ...drafts.summaries(),
+  ],
+});
 export const merchantProductsGateway: MerchantProductsGateway = {
   async products(query) {
-    if (!merchantAvailable) throw new CommerceError('SERVICE_UNAVAILABLE', '商家商品接口暂不可用，需配合店铺认证接入。');
-    await new Promise<void>(resolve => setTimeout(resolve, 180));
+    if (!merchantAvailable)
+      throw new CommerceError('SERVICE_UNAVAILABLE', '商家商品接口暂不可用，需配合店铺认证接入。');
+    await new Promise<void>((resolve) => setTimeout(resolve, 180));
     return mock.products(query);
   },
 };

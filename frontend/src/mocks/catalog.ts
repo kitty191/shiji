@@ -15,8 +15,19 @@ const rows = [
   ['notebook', '日常随手记事本', 1200, 1200, 'home', 'daily', '日常器物'],
   ['bottle', '轻量随行水杯', 4900, 4900, 'outdoor', 'outdoor', '轻行户外'],
 ] as const;
-export const products: MockProduct[] = rows.map(([id, name, min, max, category, store, shop], index) => ({
-  product_id: id, name, category_id: `category_${category}`, cover_image: `/images/${id}.jpg`,
-  store: { store_id: `store_${store}`, name: shop }, display_price: min, display_price_source: 'AUTO',
-  min_price: min, max_price: max, currency: 'CNY', stock_status: 'IN_STOCK', published_order: index + 1,
-}));
+export const products: MockProduct[] = rows.map(
+  ([id, name, min, max, category, store, shop], index) => ({
+    product_id: id,
+    name,
+    category_id: `category_${category}`,
+    cover_image: `/images/${id}.jpg`,
+    store: { store_id: `store_${store}`, name: shop },
+    display_price: min,
+    display_price_source: 'AUTO',
+    min_price: min,
+    max_price: max,
+    currency: 'CNY',
+    stock_status: 'IN_STOCK',
+    published_order: index + 1,
+  }),
+);

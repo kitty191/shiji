@@ -17,14 +17,21 @@ export function readQuery(params: URLSearchParams): CatalogQuery {
   const allowed: Sort[] = ['default', 'price_asc', 'price_desc', 'newest'];
   const amount = (name: string) => {
     const value = params.get(name);
-    return value && /^\d+$/.test(value) && Number.isSafeInteger(Number(value)) ? Number(value) : undefined;
+    return value && /^\d+$/.test(value) && Number.isSafeInteger(Number(value))
+      ? Number(value)
+      : undefined;
   };
   const rawPage = Number(params.get('page') || 1);
-  return { keyword: (params.get('keyword') || '').slice(0, 120), category_id: params.get('category_id') || '',
-    min_price: amount('min_price'), max_price: amount('max_price'),
-    sort: allowed.includes(sort as Sort) ? sort as Sort : 'default',
-    page: Number.isSafeInteger(rawPage) && rawPage > 0 ? rawPage : 1, page_size: 12,
-    feed_token: params.get('feed_token') || undefined };
+  return {
+    keyword: (params.get('keyword') || '').slice(0, 120),
+    category_id: params.get('category_id') || '',
+    min_price: amount('min_price'),
+    max_price: amount('max_price'),
+    sort: allowed.includes(sort as Sort) ? (sort as Sort) : 'default',
+    page: Number.isSafeInteger(rawPage) && rawPage > 0 ? rawPage : 1,
+    page_size: 12,
+    feed_token: params.get('feed_token') || undefined,
+  };
 }
 export function queryParams(query: CatalogQuery): URLSearchParams {
   const params = new URLSearchParams();
@@ -37,26 +44,43 @@ export function queryParams(query: CatalogQuery): URLSearchParams {
   if (query.feed_token) params.set('feed_token', query.feed_token);
   return params;
 }
-export function changeQuery(query: CatalogQuery, patch: Partial<Omit<CatalogQuery, 'feed_token'>>): CatalogQuery {
+export function changeQuery(
+  query: CatalogQuery,
+  patch: Partial<Omit<CatalogQuery, 'feed_token'>>,
+): CatalogQuery {
   const next = { ...query, ...patch, page: patch.page ?? 1 };
-  const sameFeed = (['keyword', 'category_id', 'min_price', 'max_price', 'sort', 'page_size'] as const)
-    .every(field => next[field] === query[field]);
+  const sameFeed = (
+    ['keyword', 'category_id', 'min_price', 'max_price', 'sort', 'page_size'] as const
+  ).every((field) => next[field] === query[field]);
   if (patch.page === undefined || !sameFeed) next.feed_token = undefined;
   return next;
 }
 export function selectProducts(products: readonly MockProduct[], query: CatalogQuery): ProductPage {
   const keyword = query.keyword.trim().toLocaleLowerCase();
-  let matches = products.filter(p => (!keyword || `${p.name} ${p.store.name}`.toLocaleLowerCase().includes(keyword)) &&
-    (!query.category_id || query.category_id === p.category_id) &&
-    (query.min_price === undefined || p.display_price >= query.min_price) &&
-    (query.max_price === undefined || p.display_price <= query.max_price));
-  if (query.sort === 'price_asc') matches = matches.toSorted((a, b) => a.display_price - b.display_price);
-  if (query.sort === 'price_desc') matches = matches.toSorted((a, b) => b.display_price - a.display_price);
-  if (query.sort === 'newest') matches = matches.toSorted((a, b) => b.published_order - a.published_order);
+  let matches = products.filter(
+    (p) =>
+      (!keyword || `${p.name} ${p.store.name}`.toLocaleLowerCase().includes(keyword)) &&
+      (!query.category_id || query.category_id === p.category_id) &&
+      (query.min_price === undefined || p.display_price >= query.min_price) &&
+      (query.max_price === undefined || p.display_price <= query.max_price),
+  );
+  if (query.sort === 'price_asc')
+    matches = matches.toSorted((a, b) => a.display_price - b.display_price);
+  if (query.sort === 'price_desc')
+    matches = matches.toSorted((a, b) => b.display_price - a.display_price);
+  if (query.sort === 'newest')
+    matches = matches.toSorted((a, b) => b.published_order - a.published_order);
   const start = (query.page - 1) * query.page_size;
-  return { items: matches.slice(start, start + query.page_size).map(({ published_order: _order, ...card }) => card),
-    page: query.page, page_size: query.page_size, total: matches.length,
-    has_more: start + query.page_size < matches.length, feed_token: 'shiji_demo_feed_v1' };
+  return {
+    items: matches
+      .slice(start, start + query.page_size)
+      .map(({ published_order: _order, ...card }) => card),
+    page: query.page,
+    page_size: query.page_size,
+    total: matches.length,
+    has_more: start + query.page_size < matches.length,
+    feed_token: 'shiji_demo_feed_v1',
+  };
 }
 export function prototypeUrl(page: string, params: Record<string, string> = {}): string {
   const query = new URLSearchParams(params).toString();

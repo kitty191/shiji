@@ -21,7 +21,9 @@ export interface AddressEditRequest extends Omit<AddressCreateRequest, 'is_defau
   edit_token: string;
 }
 
-export interface AddressDeleteResult { deleted: true }
+export interface AddressDeleteResult {
+  deleted: true;
+}
 
 export type AddressOperation =
   | { kind: 'create'; request: AddressCreateRequest }

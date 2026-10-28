@@ -11,8 +11,14 @@ export function CartProvider({ children }: { children: ReactNode }) {
   const [open, setOpen] = useState(false);
   const location = useLocation();
   useEffect(() => setOpen(false), [location.pathname]);
-  const show = useCallback(() => { setOpen(true); if (!store.getSnapshot().retryPending && !store.getSnapshot().error) void store.load().catch(() => undefined); }, [store]);
+  const show = useCallback(() => {
+    setOpen(true);
+    if (!store.getSnapshot().retryPending && !store.getSnapshot().error)
+      void store.load().catch(() => undefined);
+  }, [store]);
   const close = useCallback(() => setOpen(false), []);
-  useEffect(() => { void store.load().catch(() => undefined); }, [store]);
+  useEffect(() => {
+    void store.load().catch(() => undefined);
+  }, [store]);
   return <CartContext value={{ store, open, show, close }}>{children}</CartContext>;
 }

@@ -3,14 +3,34 @@ import { AddressError } from '../lib/address.ts';
 import { mockAddressBook as engine } from '../mocks/session.ts';
 
 export const addressesAvailable = import.meta.env.VITE_DATA_SOURCE !== 'api';
-const delay = () => new Promise<void>(resolve => setTimeout(resolve, 180));
+const delay = () => new Promise<void>((resolve) => setTimeout(resolve, 180));
 function requireMock(): void {
   if (!addressesAvailable) throw new AddressError('SERVICE_UNAVAILABLE', '收货地址接口暂不可用。');
 }
 export const addressGateway: AddressGateway = {
-  async read() { requireMock(); await delay(); return engine.read(); },
-  async create(request, key) { requireMock(); await delay(); return engine.create(request, key); },
-  async update(addressId, request, operationKey) { requireMock(); await delay(); return engine.update(addressId, request, operationKey); },
-  async setDefault(addressId, key) { requireMock(); await delay(); return engine.setDefault(addressId, key); },
-  async remove(addressId, key) { requireMock(); await delay(); return engine.remove(addressId, key); },
+  async read() {
+    requireMock();
+    await delay();
+    return engine.read();
+  },
+  async create(request, key) {
+    requireMock();
+    await delay();
+    return engine.create(request, key);
+  },
+  async update(addressId, request, operationKey) {
+    requireMock();
+    await delay();
+    return engine.update(addressId, request, operationKey);
+  },
+  async setDefault(addressId, key) {
+    requireMock();
+    await delay();
+    return engine.setDefault(addressId, key);
+  },
+  async remove(addressId, key) {
+    requireMock();
+    await delay();
+    return engine.remove(addressId, key);
+  },
 };
