@@ -2518,3 +2518,19 @@
 .merchant-draft-fields textarea { resize: vertical }
 .merchant-draft-fields .address-field { min-width: 0 }
 @media(max-width:900px) { .merchant-draft-fields { grid-template-columns: minmax(0, 1fr) } }
+
+.draft-images { min-width: 0; border-top: 1px solid var(--line); padding-top: 20px }
+.draft-images h3, .draft-images h4 { font-size: 15px; margin: 12px 0 }
+.draft-image-list { list-style: none; padding: 0; margin: 18px 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px }
+.draft-image-list>li { min-width: 0; padding: 12px; border: 1px solid var(--line); border-radius: 10px; overflow-wrap: anywhere }
+.draft-image-preview { aspect-ratio: 1; background: var(--bg); border-radius: 8px; overflow: hidden; display: flex; align-items: center; justify-content: center; color: var(--muted); font-size: 12px }
+.draft-image-preview img { width: 100%; height: 100%; object-fit: cover }
+.draft-main-badge { color: var(--brand); margin-left: 12px; font-size: 12px }
+.draft-image-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px }
+.draft-image-actions .button { padding: 7px 10px; font-size: 12px }
+.draft-images-empty { padding: 20px 0; color: var(--muted) }
+.draft-media-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; margin: 14px 0 }
+.draft-media-choice { min-width: 0; padding: 8px; border: 1px solid var(--line); background: var(--panel); border-radius: 10px; text-align: left; color: inherit }
+.draft-media-choice span { display: block; margin-top: 6px; font-size: 12px }
+.draft-media-choice:disabled { opacity: .6 }
+@media(max-width:1000px) { .draft-image-list { grid-template-columns: repeat(2, minmax(0, 1fr)) } .draft-media-grid { grid-template-columns: repeat(4, minmax(0, 1fr)) } }
