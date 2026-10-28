@@ -1,7 +1,18 @@
 import type { CatalogQuery, MockProduct, ProductPage, Sort } from '../types/catalog.ts';
 
+// Divide integer cents before formatting: converting to floating-point yuan can lose a cent.
+export function centsToYuan(cents: number): string {
+  const amount = BigInt(cents);
+  const absolute = amount < 0n ? -amount : amount;
+  return `${amount < 0n ? '-' : ''}${absolute / 100n}.${String(absolute % 100n).padStart(2, '0')}`;
+}
 export function formatMoney(cents: number): string {
-  return new Intl.NumberFormat('zh-CN', { maximumFractionDigits: 2 }).format(cents / 100);
+  const [whole, decimal] = centsToYuan(cents).split('.');
+  const fraction = decimal.replace(/0+$/, '');
+  const integer = new Intl.NumberFormat('zh-CN').format(BigInt(whole));
+  // BigInt('-0') loses its sign, so retain it for negative amounts below one yuan.
+  const sign = cents < 0 && whole === '-0' ? '-' : '';
+  return `${sign}${integer}${fraction ? `.${fraction}` : ''}`;
 }
 export function priceToCents(input: string): number | undefined {
   const value = input.trim();

@@ -165,11 +165,17 @@ export async function loadOrderDetail(
   id: string,
 ) {
   let order = await gateway.order(id);
-  const payment = await gateway.payment(order.payment_group_id),
-    link = payment.shop_orders.find((item) => item.order_id === order.order_id);
-  if (!link)
+  const payment = await gateway.payment(order.payment_group_id);
+  const link = payment.shop_orders.find((item) => item.order_id === id);
+  const consistent = () =>
+    !!link &&
+    order.order_id === id &&
+    order.payment_group_id === payment.payment_group_id &&
+    payment.status === order.payment_status &&
+    link.status === order.status;
+  if (!consistent()) order = await gateway.order(id);
+  // Do not render a mixture of two revisions if the bounded reread is still inconsistent.
+  if (!consistent())
     throw new CommerceError('SERVICE_UNAVAILABLE', '订单与支付单状态暂时不一致，请重新读取。');
-  if (payment.status !== order.payment_status || link.status !== order.status)
-    order = await gateway.order(id);
   return { order, payment };
 }

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import type { FormEvent } from 'react';
 import type { CatalogQuery, Category, Sort } from '../types/catalog.ts';
-import { formatMoney, priceToCents, queryParams } from '../lib/catalog.ts';
+import { centsToYuan, formatMoney, priceToCents, queryParams } from '../lib/catalog.ts';
 import { Icon } from './Icon.tsx';
 
 type QueryPatch = Partial<Omit<CatalogQuery, 'feed_token'>>;
@@ -21,8 +21,8 @@ export function CatalogFilters({
     [maximum, setMaximum] = useState(''),
     [priceError, setPriceError] = useState('');
   useEffect(() => {
-    setMinimum(query.min_price === undefined ? '' : String(query.min_price / 100));
-    setMaximum(query.max_price === undefined ? '' : String(query.max_price / 100));
+    setMinimum(query.min_price === undefined ? '' : centsToYuan(query.min_price));
+    setMaximum(query.max_price === undefined ? '' : centsToYuan(query.max_price));
     setPriceError('');
   }, [priceKey]);
   function applyPrice(event: FormEvent) {

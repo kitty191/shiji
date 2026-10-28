@@ -1,5 +1,6 @@
 import type { DraftFields } from '../types/merchantProduct.ts';
 import { CommerceError } from './commerce.ts';
+import { centsToYuan } from './catalog.ts';
 export interface DraftForm {
   title: string;
   category_id: string;
@@ -18,10 +19,7 @@ export function draftForm(fields: DraftFields): DraftForm {
     title: fields.title ?? '',
     category_id: fields.category_id ?? '',
     description: fields.description ?? '',
-    price:
-      fields.display_price_override === null
-        ? ''
-        : `${BigInt(fields.display_price_override) / 100n}.${String(BigInt(fields.display_price_override) % 100n).padStart(2, '0')}`,
+    price: fields.display_price_override === null ? '' : centsToYuan(fields.display_price_override),
   };
 }
 export function draftFields(form: DraftForm): DraftFields {

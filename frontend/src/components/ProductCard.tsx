@@ -1,8 +1,25 @@
+import { useState } from 'react';
 import type { ProductCard as Product } from '../types/catalog.ts';
 import { Link, useLocation } from 'react-router-dom';
 import { formatMoney } from '../lib/catalog.ts';
 import { buyerContextPath, storePath } from '../lib/product.ts';
 import { rememberBuyerPosition } from '../lib/browsePosition.ts';
+function CardImage({ src, name }: { src: string | null; name: string }) {
+  const [failed, setFailed] = useState(false);
+  return src && !failed ? (
+    <img
+      src={src}
+      alt={name}
+      loading="lazy"
+      width="480"
+      height="480"
+      onError={() => setFailed(true)}
+    />
+  ) : (
+    <span>暂无商品图片</span>
+  );
+}
+
 export function ProductCard({ product }: { product: Product }) {
   const location = useLocation();
   const fromStore = location.pathname.startsWith('/stores/'),
@@ -25,17 +42,7 @@ export function ProductCard({ product }: { product: Product }) {
         onClick={remember}
         aria-label={`查看${product.name}详情`}
       >
-        {product.cover_image ? (
-          <img
-            src={product.cover_image}
-            alt={product.name}
-            loading="lazy"
-            width="480"
-            height="480"
-          />
-        ) : (
-          <span>暂无商品图片</span>
-        )}
+        <CardImage key={product.cover_image} src={product.cover_image} name={product.name} />
       </Link>
       {fromStore ? (
         <span className="store-link">{product.store.name}</span>

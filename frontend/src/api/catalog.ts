@@ -14,7 +14,14 @@ import { mockProductView } from '../mocks/product.ts';
 import { mockCommerce } from '../mocks/session.ts';
 import { publicStores } from '../mocks/store.ts';
 import { selectStoreProducts, storeProductsParams } from '../lib/store.ts';
-import { isCategoryResult, isPublicStore, isStoreProductPage } from '../lib/catalogValidation.ts';
+import {
+  isCategoryResult,
+  isPublicStore,
+  isStoreProductPage,
+  isProductPage,
+  isProductView,
+  isRecommendationResult,
+} from '../lib/catalogValidation.ts';
 function mockCards() {
   const current = mockCommerce.catalog();
   return products.map((card) => {
@@ -70,6 +77,8 @@ export async function getProducts(query: CatalogQuery, signal?: AbortSignal): Pr
     ? await mockResult(selectProducts(mockCards(), query), signal)
     : await get<ProductPage>('/products', params, signal);
   if (result.code !== 'SUCCESS') throw new ApiError(result.code, result.message);
+  if (!isProductPage(result.data, query))
+    throw new ApiError('SERVICE_UNAVAILABLE', '商品列表暂时不可用，请稍后重试。');
   return result.data;
 }
 
@@ -77,6 +86,8 @@ export async function getProductView(
   productId: string,
   signal?: AbortSignal,
 ): Promise<ProductView> {
+  if (!productId || productId === '.' || productId === '..')
+    throw new ApiError('NOT_FOUND', '没有找到这件商品。');
   const result = usesMockData
     ? await mockResult(
         mockCommerce.catalog().find((p) => p.product_id === productId) ??
@@ -87,7 +98,7 @@ export async function getProductView(
     : await get<ProductView>(`/products/${encodeURIComponent(productId)}`, undefined, signal);
   if (result.code !== 'SUCCESS') throw new ApiError(result.code, result.message);
   if (!result.data) throw new ApiError('NOT_FOUND', '没有找到这件商品。');
-  if (result.data.view_status !== 'ON_SALE' && result.data.view_status !== 'OFF_SALE')
+  if (!isProductView(result.data, productId))
     throw new ApiError('SERVICE_UNAVAILABLE', '商品资料暂时不可用，请稍后重试。');
   return result.data;
 }
@@ -119,6 +130,8 @@ export async function getRecommendations(
         signal,
       );
   if (result.code !== 'SUCCESS') throw new ApiError(result.code, result.message);
+  if (!isRecommendationResult(result.data))
+    throw new ApiError('SERVICE_UNAVAILABLE', '推荐商品暂时不可用，请稍后重试。');
   return result.data;
 }
 

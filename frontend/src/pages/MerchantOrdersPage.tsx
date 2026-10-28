@@ -20,7 +20,7 @@ export function MerchantOrdersPage() {
     [reload, setReload] = useState(0);
   const retry = useRef<HTMLButtonElement>(null),
     heading = useRef<HTMLHeadingElement>(null),
-    focusAfterRead = useRef(false);
+    focusAfterRead = useRef<string | null>(null);
   const [result, setResult] = useState<{
     key: string;
     status: 'loading' | 'ready' | 'error';
@@ -32,6 +32,9 @@ export function MerchantOrdersPage() {
     setOrderNo(query.order_no);
     setKeyword(query.keyword);
   }, [query.order_no, query.keyword]);
+  useEffect(() => {
+    if (focusAfterRead.current !== key) focusAfterRead.current = null;
+  }, [key]);
   useEffect(() => {
     let current = true;
     setResult({ key, status: 'loading' });
@@ -54,23 +57,24 @@ export function MerchantOrdersPage() {
     };
   }, [key, reload, state.revision]);
   useEffect(() => {
-    if (result.key === key && result.status !== 'loading' && focusAfterRead.current) {
-      focusAfterRead.current = false;
+    if (result.key === key && result.status !== 'loading' && focusAfterRead.current === key) {
+      focusAfterRead.current = null;
       (result.status === 'error' ? (retry.current ?? heading.current) : heading.current)?.focus({
         preventScroll: true,
       });
     }
   }, [result, key]);
   function update(patch: Partial<MerchantOrderQuery>) {
-    focusAfterRead.current = true;
-    setParams(merchantOrderParams({ ...query, ...patch, page: patch.page ?? 1 }));
+    const next = { ...query, ...patch, page: patch.page ?? 1 };
+    focusAfterRead.current = JSON.stringify(next);
+    setParams(merchantOrderParams(next));
   }
   function search(event: FormEvent) {
     event.preventDefault();
     update({ order_no: orderNo.trim(), keyword: keyword.trim() });
   }
   function refresh() {
-    focusAfterRead.current = true;
+    focusAfterRead.current = key;
     setReload((n) => n + 1);
   }
   const loading = result.key !== key || result.status === 'loading';
@@ -128,10 +132,9 @@ export function MerchantOrdersPage() {
                 className="text-button"
                 type="button"
                 onClick={() => {
-                  focusAfterRead.current = true;
                   setOrderNo('');
                   setKeyword('');
-                  setParams(new URLSearchParams());
+                  update({ status: '', order_no: '', keyword: '' });
                 }}
               >
                 清空筛选
@@ -208,11 +211,16 @@ export function MerchantOrdersPage() {
                 </h2>
                 <p>
                   {page.total > 0
-                    ? '请返回上一页或调整查询条件。'
+                    ? '已有本店订单，请返回第一页继续查看。'
                     : query.status || query.order_no || query.keyword
                       ? '试试其他状态、订单号或成交商品标题。'
                       : '本店商品产生模拟订单后，会在这里显示。'}
                 </p>
+                {page.total > 0 && (
+                  <button className="button" onClick={() => update({ page: 1 })}>
+                    返回第一页
+                  </button>
+                )}
               </div>
             )}
             {(query.page > 1 || page.has_more) && (

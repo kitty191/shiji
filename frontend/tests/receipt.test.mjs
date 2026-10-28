@@ -345,3 +345,44 @@ test('receipt recovery links encode order IDs and preserve only buyer order-list
   for (const value of [null, 'https://example.com', '/merchant/orders', '/payments/pay'])
     assert.equal(buyerOrderPath('order', value), '/orders/order?return_to=%2Forders');
 });
+
+test('buyer detail rejects a still-inconsistent snapshot after its bounded recheck', async () => {
+  const f = fixture();
+  const shipped = f.engine.order(f.id);
+  f.engine.confirmReceipt(f.id, 'receive');
+  let reads = 0;
+  await assert.rejects(
+    loadOrderDetail(
+      {
+        order: async () => {
+          reads++;
+          return shipped;
+        },
+        payment: async (id) => f.engine.payment(id),
+      },
+      f.id,
+    ),
+    code('SERVICE_UNAVAILABLE'),
+  );
+  assert.equal(reads, 2);
+});
+
+test('buyer detail cannot pair an order with a different payment group or order identity', async () => {
+  const f = fixture();
+  const order = f.engine.order(f.id);
+  for (const patch of [
+    { payment_group_id: 'different-payment' },
+    { order_id: 'different-order' },
+  ]) {
+    await assert.rejects(
+      loadOrderDetail(
+        {
+          order: async () => ({ ...order, ...patch }),
+          payment: async () => f.engine.payment(f.payment.payment_group_id),
+        },
+        f.id,
+      ),
+      code('SERVICE_UNAVAILABLE'),
+    );
+  }
+});

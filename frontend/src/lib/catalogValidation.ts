@@ -4,6 +4,8 @@ import type {
   ProductCard,
   ProductPage,
   PublicStore,
+  ProductView,
+  RecommendationResult,
 } from '../types/catalog.ts';
 import { storePageSize } from './store.ts';
 
@@ -44,7 +46,7 @@ export function isPublicStore(value: unknown, storeId: string): value is PublicS
   );
 }
 
-function isStoreProduct(value: unknown, storeId: string): value is ProductCard {
+export function isProductCard(value: unknown): value is ProductCard {
   return (
     record(value) &&
     id(value.product_id) &&
@@ -52,7 +54,7 @@ function isStoreProduct(value: unknown, storeId: string): value is ProductCard {
     id(value.category_id) &&
     nullableText(value.cover_image) &&
     record(value.store) &&
-    value.store.store_id === storeId &&
+    id(value.store.store_id) &&
     typeof value.store.name === 'string' &&
     nonnegativeInteger(value.display_price) &&
     nonnegativeInteger(value.min_price) &&
@@ -64,32 +66,115 @@ function isStoreProduct(value: unknown, storeId: string): value is ProductCard {
   );
 }
 
-export function isStoreProductPage(
-  value: unknown,
-  storeId: string,
-  query: CatalogQuery,
-): value is ProductPage {
+export function isProductPage(value: unknown, query: CatalogQuery): value is ProductPage {
   if (
     !record(value) ||
     value.page !== query.page ||
-    value.page_size !== storePageSize ||
+    value.page_size !== query.page_size ||
     !nonnegativeInteger(value.total) ||
     typeof value.has_more !== 'boolean' ||
     !nullableText(value.feed_token) ||
     !Array.isArray(value.items)
   )
     return false;
-  const start = (query.page - 1) * storePageSize,
-    expected = Math.max(0, Math.min(storePageSize, value.total - start));
+  const start = (query.page - 1) * query.page_size;
+  const expected = Math.max(0, Math.min(query.page_size, value.total - start));
   if (
     value.items.length !== expected ||
     value.has_more !== start + value.items.length < value.total
   )
     return false;
+  return uniqueRows(value.items, 'product_id', isProductCard);
+}
+
+export function isStoreProductPage(
+  value: unknown,
+  storeId: string,
+  query: CatalogQuery,
+): value is ProductPage {
+  return (
+    query.page_size === storePageSize &&
+    isProductPage(value, query) &&
+    value.items.every((item) => item.store.store_id === storeId)
+  );
+}
+
+function uniqueRows(
+  value: unknown,
+  key: string,
+  valid: (row: Record<string, unknown>) => boolean,
+): boolean {
+  if (!Array.isArray(value)) return false;
   const ids = new Set<string>();
-  return value.items.every((item) => {
-    if (!isStoreProduct(item, storeId) || ids.has(item.product_id)) return false;
-    ids.add(item.product_id);
+  return value.every((row) => {
+    if (!record(row) || !id(row[key]) || ids.has(row[key]) || !valid(row)) return false;
+    ids.add(row[key]);
     return true;
   });
+}
+
+export function isProductView(value: unknown, productId: string): value is ProductView {
+  if (
+    !record(value) ||
+    value.product_id !== productId ||
+    !record(value.store) ||
+    !id(value.store.store_id) ||
+    typeof value.store.name !== 'string'
+  )
+    return false;
+  if (value.view_status === 'OFF_SALE') return true;
+  if (
+    value.view_status !== 'ON_SALE' ||
+    !isProductCard(value) ||
+    typeof value.description !== 'string' ||
+    typeof value.published_at !== 'string' ||
+    !Number.isFinite(Date.parse(value.published_at)) ||
+    !nullableText(value.default_sku_id)
+  )
+    return false;
+  return (
+    Array.isArray(value.attributes) &&
+    value.attributes.every(
+      (attribute) =>
+        record(attribute) &&
+        typeof attribute.name === 'string' &&
+        typeof attribute.value === 'string',
+    ) &&
+    uniqueRows(
+      value.images,
+      'image_id',
+      (image) => id(image.url) && nonnegativeInteger(image.sort_order),
+    ) &&
+    uniqueRows(
+      value.dimensions,
+      'dimension_id',
+      (dimension) =>
+        typeof dimension.name === 'string' &&
+        uniqueRows(dimension.values, 'value_id', (option) => typeof option.value === 'string'),
+    ) &&
+    uniqueRows(
+      value.skus,
+      'sku_id',
+      (sku) =>
+        nonnegativeInteger(sku.price) &&
+        sku.currency === 'CNY' &&
+        nonnegativeInteger(sku.available_stock) &&
+        (sku.status === 'IN_STOCK' || sku.status === 'SOLD_OUT') &&
+        nullableText(sku.image_id) &&
+        nullableText(sku.image_url) &&
+        Array.isArray(sku.spec_values) &&
+        sku.spec_values.every(
+          (selection) => record(selection) && id(selection.dimension_id) && id(selection.value_id),
+        ),
+    )
+  );
+}
+
+export function isRecommendationResult(value: unknown): value is RecommendationResult {
+  return (
+    record(value) &&
+    typeof value.checked_at === 'string' &&
+    Number.isFinite(Date.parse(value.checked_at)) &&
+    uniqueRows(value.items, 'product_id', isProductCard)
+  );
 }
